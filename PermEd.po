@@ -1,0 +1,357 @@
+msgid ""
+msgstr ""
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+
+msgid "Permission & Attribute Editor"
+msgstr "Engedély és Fájljellemző Szerkesztő"
+
+msgid "Do not update access-time"
+msgstr "Nem frissíti a hozzáférési időt"
+
+msgid "Append only"
+msgstr "Csak hozzáfűzés"
+
+msgid "Do not perform Copy-on-Write"
+msgstr "Nem csinál Copy-on-Write műveletet"
+
+msgid "Kernel-level compression"
+msgstr "Kernel-szintű tömörítés"
+
+msgid "Synchronous I/O on directory"
+msgstr "Szinkron I/O könyvtáron"
+
+msgid "Skipped by dump(8) program"
+msgstr "A dump(8) program kihagyja"
+
+msgid "Has compression error"
+msgstr "Tömörítési hibája van"
+
+msgid "Using extents for mapping the blocks on disk"
+msgstr "Extenteket használ a blokkok lemezre helyezéséhez"
+
+msgid "Larger (was) than 2TB"
+msgstr "Nagyobb (volt) mint 2TB"
+
+msgid "Indexed using hashed trees"
+msgstr "H-tree eljárással indexelt"
+
+msgid "Immutable"
+msgstr "Megváltoztathatatlan"
+
+msgid "Journaling"
+msgstr "Belekerül a journal-ba"
+
+msgid "Synchronous I/O on file"
+msgstr "Szinkron I/O fájlon"
+
+msgid "Secure delete"
+msgstr "Biztonságos törlés"
+
+msgid "Try to place subentries to separate block groups"
+msgstr "A bejegyzéseket külön blokkcsoportokba próbálja rendezni"
+
+msgid "No tail-merging"
+msgstr "Nincs tail-merging"
+
+msgid "Allow undeletion"
+msgstr "Törlésből visszaállítható"
+
+msgid "Raw content of compressed file can be accessed directly"
+msgstr "A tömörített fájl nyers tartalma közvetlenül elérhető"
+
+msgid "Dirty compressed file"
+msgstr "Piszkos tömörített fájl"
+
+
+msgid "Set owner's privileges"
+msgstr "Futtatás a tulajdonos nevében"
+
+msgid "Anyone who executes this (binary program) file, automatically impersonates file's owner"
+msgstr "Aki tudja futtatni ezt a (bináris program) fájlt, felveszi a fájl tulajdonosának jogait"
+
+msgid "Inherit owner user"
+msgstr "Tulajdonos örökítése"
+
+msgid "Newly created files and directories (on first depth) automatically owned by the same user as this directory - If supported by system"
+msgstr "A közvetlenül e könyvtárban létrehozott fájlok tulajdonosa a könyvtár tulajdonosa lesz - Ha a rendszer támogatja"
+
+msgid "Set owner group's privileges"
+msgstr "Futtatás a tulajdonosi csoport nevében"
+
+msgid "Anyone who executes this (binary program) file, automatically gains privileges of file's owner group"
+msgstr "Aki tudja futtatni ezt a (bináris program) fájlt, felveszi a fájl tulajdonosi csoportjának jogait"
+
+msgid "Inherit owner group"
+msgstr "Tulajdonosi csoport örökítése"
+
+msgid "Newly created files and directories (on first depth) automatically owned by the same group as this directory"
+msgstr "A közvetlenül e könyvtárban létrehozott fájlok csoporttulajdonosa a könyvtár csoporttulajdonosa lesz"
+
+msgid "Sticky"
+msgstr "Ragadós"
+
+msgid "This bit probably has no meaning"
+msgstr "Ennek jobbára nincs jelentése"
+
+msgid "Only owners can delete files"
+msgstr "Csak a tulajdonosok törölhetnek"
+
+msgid "Only owners can delete files in this directory, but only on first depth (ie. sticky)"
+msgstr "Csak a tulajdonosok törölhetnek fájlokat közvetlenül ezen könyvtár alatt (azaz ragadós)"
+
+
+msgid "Notice: no module iniparse loaded - profile pictures might not be found"
+msgstr "Figyelem: az iniparse modul nem lett betöltve - lehet hogy nem fog profilképeket találni"
+
+msgid "Notice: no module xattr loaded - using external commands: getfattr, setfattr"
+msgstr "Figyelem: az xattr modul nem lett betöltve - külső parancsokat kell használni: getfattr, setfattr"
+
+msgid "Can not load File Attributes"
+msgstr "Nem tudom betölteni a Fájl Attribútumokat"
+
+msgid "Can not compute new ACL"
+msgstr "Nem tudom kiszámoni az új ACL értéket"
+
+msgid "Can not compute new default ACL"
+msgstr "Nem tudom kiszámoni az új örökítendő ACL-t"
+
+msgid "Non-existent user"
+msgstr "Nem létező felhasználó"
+
+msgid "List of groups that user member of:"
+msgstr "Csoportok, melyeknek tagja:"
+
+msgid "Group"
+msgstr "Csoport"
+
+msgid "Non-existent group"
+msgstr "Nem létező csoport"
+
+msgid "List of group members:"
+msgstr "A csoport tagjai:"
+
+msgid "User"
+msgstr "Felhasználó"
+
+msgid "Everybody"
+msgstr "Mindenki"
+
+msgid "everybody"
+msgstr "mindenki"
+
+msgid "Everybody else who is not listed as permission holder"
+msgstr "Mindenki más, aki nincs felsorolva jogbirtokosként"
+
+msgid "ineffective"
+msgstr "hatástalan"
+
+msgid "permission holder"
+msgstr "jogbirtokos"
+
+msgid "member of permission holder group %d"
+msgstr "tagja az %d-as jogbirtokos csoportnak"
+
+msgid "can not enter directory <b>%s</b>"
+msgstr "nem tud belépni <b>%s</b> könyvtárba"
+
+msgid "List,Write,Enter"
+msgstr "Listázás,Írás,Belépés"
+
+msgid "Read,Write,Execute"
+msgstr "Olvasás,Írás,Futtatás"
+
+msgid "Grant permissions"
+msgstr "Engedélyek megadása"
+
+msgid "Grant permissions for new files"
+msgstr "Engedélyek megadása új fájlokra"
+
+msgid "Select Permissions"
+msgstr "Engedélyek kiválasztása"
+
+msgid "Select Permission Holder"
+msgstr "Jogbirtokosok kiválasztása"
+
+msgid "Show system users, groups"
+msgstr "Rendszerfelhasználók és -csoportok mutatása"
+
+msgid "The owner"
+msgstr "A mindenkori tulajdonos"
+
+msgid "A single user:"
+msgstr "Egyetlen felhasználó:"
+
+msgid "The owner group"
+msgstr "A mindenkori tulajdonosi csoport"
+
+msgid "A group of users:"
+msgstr "Egyetlen csoport:"
+
+msgid "Everybody else"
+msgstr "Mindenki más"
+
+msgid "New File Attribute"
+msgstr "Új fájlattribútum"
+
+msgid "Key: "
+msgstr "Kulcs: "
+
+msgid "Value: "
+msgstr "Érték: "
+
+msgid "Attribute already exists."
+msgstr "Ez az attribútum már létezik."
+
+msgid "Export File Attributes"
+msgstr "Fájlattribútumok exportálása"
+
+msgid "Running %s command:"
+msgstr "%s parancs futtatásakor:"
+
+msgid "Restore File Attributes from ..."
+msgstr "Fájlattribútumok visszaállítása innen ..."
+
+msgid "Can not restore"
+msgstr "Nem tudom visszaállítani"
+
+msgid "Grantee,Read/List,Write,Execute/Enter,"
+msgstr "Jogosult,Olvas/Listáz,Írás,Futtat/Belép,"
+
+msgid "owner"
+msgstr "tulajdonos"
+
+msgid "group owner"
+msgstr "csoporttulajdonos"
+
+msgid "Owner"
+msgstr "Tulajdonos"
+
+msgid "Owner Group"
+msgstr "Csoporttulajdonos"
+
+msgid "Permissions"
+msgstr "Engedélyek"
+
+msgid "Special"
+msgstr "Speciális"
+
+msgid "Grant..."
+msgstr "Engedélyezés..."
+
+msgid "Grant"
+msgstr "Engedélyezés"
+
+msgid "Grant Recursively"
+msgstr "Rekurzív Engedélyezés"
+
+msgid "Set access permissions for selected user (or group) on this directory and on all files and subdirectories within it. New permissions may overwrite existing ones. This may take a while."
+msgstr "A hozzáférési engedélyek beállítása a kiválasztott felhasználónak (vagy csoportnak) ezen a könyvtáron és minden alkönyvtárán és fájlján. Az új engedélyek felülbírálják az esetlegesen már meglévőket. Eltarthat egy darabig."
+
+msgid "Revoke"
+msgstr "Megvonás"
+
+msgid "Revoke Recursively"
+msgstr "Rekurzív Megvonás"
+
+msgid "Recommends"
+msgstr "Javaslatok"
+
+msgid "Extended Attributes"
+msgstr "Kiterjesztett Attribútumok"
+
+msgid "Export..."
+msgstr "Exportálás..."
+
+msgid "Restore..."
+msgstr "Visszaállítás..."
+
+msgid "Clear value"
+msgstr "Érték törlése"
+
+msgid "Remove Key"
+msgstr "Kulcs törlése"
+
+msgid "Name"
+msgstr "Név"
+
+msgid "Value"
+msgstr "Érték"
+
+msgid "Filesystem Attributes"
+msgstr "Fájlrendszer Attribútumok"
+
+msgid "Attribute"
+msgstr "Attribútum"
+
+msgid ""
+"By pressing [Takeown], the program attempts to copy "
+"the file preserving the most attributes that it could. "
+"You will own the copy. Then the original file will be "
+"replaced with the copy. This trick may work if you can "
+"write the containing non-sticky directory."
+msgstr ""
+"A [Saját tulajdonba vétel] gomb megnyomásával a program "
+"megpróbálja lemásolni a fájlt a lehető legtöbb jellemzője "
+"megtartásával. A másolat az ön tulajdonában lesz. Azután "
+"az eredeti fájl helyébe teszi a másolatot. Ez a trükk "
+"működhet, ha tudja írni a nem-ragadós szülőkönyvtárat."
+
+msgid "Takeown"
+msgstr "Saját tulajdonba vétel"
+
+msgid "Select new owner"
+msgstr "Új tulajdonos"
+
+msgid "Change Owner"
+msgstr "Tulajdonos váltás"
+
+msgid "Change Group"
+msgstr "Csoport váltás"
+
+msgid "Select new owner group"
+msgstr "Új csoporttulajdonos"
+
+msgid "Show foreign groups"
+msgstr "Idegen csoportok mutatása"
+
+msgid "OR"
+msgstr "VAGY"
+
+msgid " is disabled by ACL mask"
+msgstr " le van tiltva az ACL maszk miatt"
+
+msgid " are disabled by ACL mask"
+msgstr " le vannak tiltva az ACL maszk miatt"
+
+msgid "Default Perm"
+msgstr "Örökítendő Engedélyek"
+
+msgid "OWNER"
+msgstr "TULAJDONOS"
+
+msgid "OWNER GROUP"
+msgstr "TULAJDONOS CSOPORT"
+
+msgid "The owner of newly created files"
+msgstr "Újonan létrehozott fájlok tulajdonosa"
+
+msgid "The owner group of newly created files"
+msgstr "Újonan létrehozott fájlok tulajdonosi csoportja"
+
+msgid "New files created in this directory will get these permissions."
+msgstr "Ebben a könyvtárban létrehozott új fájlokra ezek az engedélyek lesznek alkalmazva."
+
+msgid "Remove all default perms"
+msgstr "Ne legyen engedély örökítés"
+
+msgid "as"
+msgstr "mint"
+
+msgid "Following symlinks"
+msgstr "Követve a linkeket"
+
+msgid "Not following symlinks"
+msgstr "Nem követve a linkeket"
+

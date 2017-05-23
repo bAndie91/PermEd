@@ -1,0 +1,2189 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import os
+import pwd
+import grp
+import sys
+import gtk
+import gobject
+import gettext
+_ = gettext.gettext
+import threading
+gtk.threads_init()
+from optparse import OptionParser
+try:
+	import iniparse
+except ImportError:
+	print _("Notice: no module iniparse loaded - profile pictures might not be found")
+	iniparse = None
+try:
+	import xattr
+except ImportError:
+	print _("Notice: no module xattr loaded - using external commands: getfattr, setfattr")
+	xattr = None
+
+
+
+
+class LocalException(BaseException):
+	pass
+
+def add_key_binding(widget, keyname, callback):
+	accelgroup = gtk.AccelGroup()
+	key, modifier = gtk.accelerator_parse(keyname)
+	accelgroup.connect_group(key, modifier, gtk.ACCEL_VISIBLE, callback)
+	widget.add_accel_group(accelgroup)
+
+def display_error(e):
+	text = None
+	if isinstance(e, OSError) or isinstance(e, IOError):
+		text = "#" + str(e.errno) + "\n" + e.strerror + "\n" + e.filename
+	elif isinstance(e, Exception):
+		text = e.message
+	elif type(e) == type([]):
+		text = ''.join(e)
+	if text is None:
+		text = str(e)
+	dlg = gtk.MessageDialog(win, gtk.DIALOG_MODAL | gtk.DIALOG_DESTROY_WITH_PARENT, gtk.MESSAGE_ERROR, gtk.BUTTONS_OK, text)
+	dlg.run()
+	dlg.destroy()
+
+def main_win_show(widget, event):
+	win.disconnect(start_evt)
+	main_load_file()
+
+def main_load_file():
+	if len(main_args) > 0:
+		hpane1.set_position(0)
+		load_file(os.path.realpath(main_args[0]))
+	else:
+		main_load_dirs()
+		Global['Lock']['Filename'] = True
+		expand_path(os.path.join(os.getcwd(), '.'))
+		Global['Lock']['Filename'] = False
+		load_file()
+
+def main_load_dirs():
+	load_dirs(tree2, stor2)
+
+def pane_adjusting(pane, gparamspec):
+	if gparamspec.name == 'position' and pane.get_property('position-set'):
+		if stor2.get_iter_first() is None:
+			if pane.get_property('position') > 32:
+				load_dirs(tree2, stor2)
+				expand_path(Global['Filename'])
+
+def execve(*args):
+	pipe_read, pipe_write = os.pipe()
+	pipe2_read, pipe2_write = os.pipe()
+	fhnd_read = os.fdopen(pipe_read, 'r')
+	fhnd_write = os.fdopen(pipe_write, 'w')
+	fhnd2_read = os.fdopen(pipe2_read, 'r')
+	fhnd2_write = os.fdopen(pipe2_write, 'w')
+	pid = os.fork()
+	if pid == 0:
+		sys.stdin.close()
+		fhnd_read.close()
+		fhnd2_read.close()
+		os.dup2(pipe_write, sys.stdout.fileno())
+		os.dup2(pipe2_write, sys.stderr.fileno())
+		try:
+			os.execvp(args[0], args)
+		except OSError, exc:
+			sys.stderr.write(str(exc))
+		os._exit(127)
+	if pid > 0:
+		fhnd_write.close()
+		fhnd2_write.close()
+		stdout = fhnd_read.readlines()
+		stderr = fhnd2_read.readlines()
+		q, status = os.waitpid(pid, 0)
+		sig = status & 0xFF
+		excode = status >> 8
+		return (excode, stdout, stderr)
+	return False
+
+class ExecThread(threading.Thread):
+	callback = None
+	cb_args = None
+	def set_callback(self, callback, *cb_args):
+		self.callback = callback
+		self.cb_args = cb_args
+	def run(self):
+		result = self._Thread__target(*self._Thread__args, **self._Thread__kwargs)
+		if self.callback is not None:
+			gtk.threads_enter()
+			self.callback(self, result, *self.cb_args)
+			gtk.threads_leave()
+
+def run_async(args_list, callback, *cb_args):
+	thrd = ExecThread(target=execve, args=args_list)
+	thrd.set_callback(callback, *cb_args)
+	thrd.start()
+	return thrd
+
+def func_async(funcname, funcargs, callback, *cb_args):
+	thrd = ExecThread(target=funcname, args=funcargs)
+	thrd.set_callback(callback, *cb_args)
+	thrd.start()
+	return thrd
+
+def main_check_exec_type():
+	fh = None
+	try:
+		fh = open(Global['Filename'], 'r')
+		sign = fh.read(4)
+		fh.close()
+	except IOError:
+		if fh: fh.close()
+		return (False, None)
+	if sign[0:2] == '#!':
+		return (True, EXEC_TYPE_SCRIPT)
+	elif sign[0:4] == '\x7fELF':
+		return (True, EXEC_TYPE_BINARY)
+	else:
+		return (False, None)
+
+def is_array(value):
+	return hasattr(value, '__iter__')
+
+def load_face_fallback(uid, size, claim = 'user'):
+	face = None
+	data = None
+	if claim in ['user', 'owner']:
+		face = load_face(uid, size)
+	if face is None:
+		data = DefaultPixbufName[claim]
+		#data = icontheme.load_icon(icontheme.list_icons()[0], size, 0)
+	return (face, data, size)
+
+def load_face_from_file(filename, cache_key, size):
+	w, h = gtk.icon_size_lookup(size)
+	pixbuf = gtk.gdk.pixbuf_new_from_file_at_size(filename, w, h)
+	if not Pixbuf['face'].has_key(cache_key): Pixbuf['face'][cache_key] = {}
+	Pixbuf['face'][cache_key][size.value_nick] = pixbuf
+	return pixbuf
+
+def load_face(uid, size):
+	if uid is None:
+		return None
+	if Pixbuf['face'].has_key(uid):
+		if Pixbuf['face'][uid].has_key(size.value_nick):
+			return Pixbuf['face'][uid][size.value_nick]
+	try:
+		pwent = pwd.getpwuid(uid)
+	except KeyError:
+		return None
+
+	for dotfile in '.face', '.face.icon':
+		iconfile = os.path.join(pwent.pw_dir, dotfile)
+		if os.access(iconfile, os.O_RDONLY):
+			return load_face_from_file(iconfile, uid, size)
+	
+	filename = os.path.join(pwent.pw_dir, ".gnome2/gdm")
+	iconfile = None
+	if iniparse is not None and os.access(filename, os.O_RDONLY):
+		try:
+			# FIXME what is the format of this file?
+			value = iniparse(file(filename))["face"]["photo"]
+			if type(value) == type(''):
+				iconfile = value
+		except KeyError:
+			pass
+	if iconfile is not None and os.access(iconfile, os.O_RDONLY):
+		return load_face_from_file(iconfile, uid, size)
+	
+	filename = os.path.join("/var/lib/AccountsService/user", pwent.pw_name)
+	iconfile = os.path.join("/var/lib/AccountsService/icons", pwent.pw_name)
+	if iniparse is not None and os.access(filename, os.O_RDONLY):
+		try:
+			value = iniparse(file(filename))["User"]["Icon"]
+			if type(value) == type(''):
+				iconfile = value
+		except KeyError:
+			pass
+	if os.access(iconfile, os.O_RDONLY):
+		return load_face_from_file(iconfile, uid, size)
+	return None
+
+def uid_by_name(name):
+	try:
+		return pwd.getpwnam(name).pw_uid
+	except KeyError:
+		return None
+
+def fullname_by_uid(uid):
+	try:
+		pwent = pwd.getpwuid(uid)
+		return fullname_from_gecos(pwent.pw_gecos)
+	except KeyError:
+		return None
+
+def fullname_from_gecos(gecos):
+	if gecos is None: return None
+	return gecos.split(',')[0]
+
+def gid_by_name(name):
+	try:
+		return grp.getgrnam(name).gr_gid
+	except KeyError:
+		return None
+
+def getgrdsc(grnam):
+	if grdsc_cache.has_key(grnam):
+		return grdsc_cache[grnam]
+	try:
+		fh = open("/etc/grnam", 'r')
+	except IOError:
+		return None
+	grdsc_cache.clear()
+	for line in fh.readlines():
+		flds = line.strip().split(':')
+		try:
+			if flds[1] != '':
+				grdsc_cache[flds[0]] = gettext.dgettext('grnam', flds[1])
+		except KeyError:
+			pass
+	fh.close()
+	if grdsc_cache.has_key(grnam):
+		return grdsc_cache[grnam]
+	return None
+
+def get_members(idnum=None, name=None):
+	members = []
+	uids = {}
+	if idnum is None:
+		idnum = gid_by_name(name)
+	if idnum is None:
+		idnum = -1
+	for pwent in pwd.getpwall():
+		uids[pwent.pw_name] = pwent.pw_uid
+		if pwent.pw_gid == idnum:
+			members.append((pwent.pw_uid, pwent.pw_name))
+	if idnum != -1:
+		try:
+			grent = grp.getgrgid(idnum)
+			for mem_name in grent.gr_mem:
+				try:
+					uid = uids[mem_name]
+				except KeyError:
+					uid = -1
+				members.append((uid, mem_name))
+		except KeyError:
+			pass
+	#print members
+	return members
+
+def get_groups(idnum=None, name=None, get_names=True):
+	groups = []
+	gids = {}
+	if idnum is None or name is None:
+		try:
+			if idnum is None:
+				pwent = pwd.getpwnam(name)
+				idnum = pwent.pw_uid
+			else:
+				pwent = pwd.getpwuid(idnum)
+				name = pwent.pw_name
+		except KeyError:
+			if idnum is None:
+				idnum = -1
+			else:
+				name = ''
+	for grent in grp.getgrall():
+		if get_names:
+			gids[grent.gr_gid] = grent.gr_name
+		if name != '' and name in grent.gr_mem:
+			if get_names:
+				item = (grent.gr_gid, grent.gr_name)
+			else:
+				item = grent.gr_gid
+			groups.append(item)
+	if idnum != -1:
+		try:
+			pwent = pwd.getpwuid(idnum)
+			if get_names:
+				try:
+					grp_name = gids[pwent.pw_gid]
+				except KeyError:
+					grp_name = str(pwent.pw_gid)
+				groups.append((pwent.pw_gid, grp_name))
+			else:
+				groups.append(pwent.pw_gid)
+		except KeyError:
+			pass
+	#print groups
+	return groups
+
+def load_file(filepath=None):
+	if Global['Lock']['Filename']:
+		return None
+
+	Global['Lock']['Filename'] = True
+	Global['Lock']['SpecToggle'] = True
+	prev_global_filename = Global['Filename']
+	Global['Filename'] = None
+	list1.clear()
+	list1b.clear()
+	list3.clear()
+	for n in 'reload', 'owner', 'group', 'grant', 'revoke', 'default-grant', 'default-revoke': Gomb[n].set_sensitive(False)
+	for n in 'owner', 'group':
+		Gomb[n].set_markup(Markup[n])
+		Gomb[n].set_pixbuf(load_face_fallback(None, IconSize['medium'], n))
+	for btn in SpecChkb.values():
+		btn.set_sensitive(False)
+		btn.set_active(False)
+	for btn, a in Gomb['xattr']: btn.set_sensitive(False)
+	entr1.set_text("")
+	
+	if filepath is None:
+		if prev_global_filename is None:
+			Global['Lock']['Filename'] = False
+			return
+		else:
+			filepath = prev_global_filename
+	
+	try:
+		st = os.stat(filepath)
+	except OSError, exc:
+		display_error(exc)
+		Global['Lock']['Filename'] = False
+		return False
+
+	mode = st.st_mode
+	if os.path.isdir(filepath):
+		ftype = 'dir'
+		page1b.show()
+	else:
+		ftype = 'file'
+		if note1.get_current_page() == 1: note1.set_current_page(0)
+		page1b.hide()
+	names = get_permission_names(ftype=ftype)
+	tree1.get_column(COLNUM_READ).set_title(names[0])
+	tree1.get_column(COLNUM_WRITE).set_title(names[1])
+	tree1.get_column(COLNUM_EXECUTE).set_title(names[2])
+	
+	holder = {'owner': {'id': st.st_uid, 'full': None}, 'group': {'id': st.st_gid, 'full': None}, 'other': {'id': None}}
+	try:
+		pwent = pwd.getpwuid(holder['owner']['id'])
+		holder['owner']['name'] = pwent.pw_name
+		holder['owner']['full'] = fullname_from_gecos(pwent.pw_gecos)
+	except KeyError:
+		holder['owner']['name'] = str(st.st_uid)
+	if holder['owner']['full'] is None or holder['owner']['full'] == '':
+		holder['owner']['full'] = holder['owner']['name']
+	try:
+		grent = grp.getgrgid(holder['group']['id'])
+		holder['group']['name'] = grent.gr_name
+		holder['group']['full'] = getgrdsc(grent.gr_name)
+	except KeyError:
+		holder['group']['name'] = str(st.st_gid)
+	if holder['group']['full'] is None or holder['group']['full'] == '':
+		holder['group']['full'] = holder['group']['name']
+
+	for n in 'owner', 'group':
+		Gomb[n].set_markup(Markup[n] + holder[n]['full'])
+		Gomb[n].set_pixbuf(load_face_fallback(holder[n]['id'], IconSize['medium'], n))
+
+	acls = getfacl(filepath)
+	acl_mask_present = False
+	groupowner_perms = []
+	other_perms = []
+
+	if acls is not None:
+		acl_mask_present = acls.has_key('mask')
+	else:
+		display_error("Can not load ACLs")
+		Global['Lock']['Filename'] = False
+		return False
+
+	for claim in 'other', 'group', 'user':
+		read = mode & 0x4 != 0
+		write = mode & 0x2 != 0
+		execute = mode & 0x1 != 0
+		if claim == 'group' and acl_mask_present:
+			read = acls['group'][''].find('r') > -1
+			write = acls['group'][''].find('w') > -1
+			execute = acls['group'][''].find('x') > -1
+		if claim in ['user', 'group'] or (read or write or execute):
+			holder_name = ''
+			holder_full = ''
+			k = 'owner' if claim == 'user' else claim
+			icon, icon_name, a = load_face_fallback(holder[k]['id'], IconSize['small'], claim)
+			if claim == 'user':
+				hid = holder['owner']['id']
+				holder_name = holder['owner']['name']
+				holder_full = holder['owner']['full']
+			elif claim == 'group':
+				hid = holder['group']['id']
+				holder_name = holder['group']['name']
+				holder_full = holder['group']['full']
+			elif claim == 'other':
+				hid = 0
+				holder_name = _('everybody')
+				holder_full = holder_name
+			holder_label = mk_holder_label(holder_full, 'mode', claim)
+			list_item = [holder_label, read, write, execute, None, hid, holder_name, ("mode", claim), icon, icon_name, NOTE_LISTS_EMPTY.copy(), 0, 0, 0]
+			if claim == 'user':
+				list1.prepend(list_item)
+			elif claim == 'group':
+				groupowner_perms.append(list_item)
+			elif claim == 'other':
+				other_perms.append(list_item)
+		mode = mode >> 3
+
+	for spec in SpecLabel.keys():
+		bit = mode & SpecLabel[spec]['mask'] != 0
+		lbl = SpecLabel[spec][ftype]['short']
+		SpecChkb[spec].set_label(lbl)
+		SpecChkb[spec].set_data('label', lbl)
+		SpecChkb[spec].set_tooltip_text(SpecLabel[spec][ftype]['long'])
+		SpecChkb[spec].set_active(bit)
+	
+	if acls is not None:
+		for claim in ['user', 'group']:
+			if claim == 'group':
+				for list_item in groupowner_perms:
+					list1.append(list_item)
+			if not acls.has_key(claim):
+				continue
+			for holder_name in sorted(acls[claim]):
+				if holder_name != '':
+					append_acl_holder_entry(list1, 'acl', claim, holder_name, acls[claim][holder_name])
+	
+	for list_item in other_perms:
+		list1.append(list_item)
+
+	if acls is not None and acls.has_key('default'):
+		for claim in ['user', 'group', 'other']:
+			if not acls['default'].has_key(claim) or (claim == 'other' and acls['default']['other'][''] == '---'):
+				continue
+			for holder_name in sorted(acls['default'][claim]):
+				append_acl_holder_entry(list1b, 'default', claim, holder_name, acls['default'][claim][holder_name])
+	
+	load_xattr(filepath)
+	load_fsattr(filepath)
+
+	entr1.set_text(filepath)
+	for n in 'reload', 'owner', 'group', 'grant', 'default-grant': Gomb[n].set_sensitive(True)
+	for btn in SpecChkb.values(): btn.set_sensitive(True)
+	for n in [0, 2, 3]: Gomb['xattr'][n][0].set_sensitive(True)
+	expand_path(filepath)
+	Global['Filename'] = filepath
+	show_notices()
+	show_notices_inaccessible()
+	Global['Lock']['Filename'] = False
+	Global['Lock']['SpecToggle'] = False
+
+def append_acl_holder_entry(model, claimtyp, claim, holder_name, rights):
+	read = rights.find('r') > -1
+	write = rights.find('w') > -1
+	execute = rights.find('x') > -1
+	hid = None
+	typ = 'acl'
+	if claim == 'user':
+		if holder_name == '':
+			holder_full = _("OWNER")
+			typ = 'mode'
+		else:
+			hid = uid_by_name(holder_name)
+			holder_full = fullname_by_uid(hid)
+	elif claim == 'group':
+		if holder_name == '':
+			holder_full = _("OWNER GROUP")
+			typ = 'mode'
+		else:
+			hid = gid_by_name(holder_name)
+			holder_full = getgrdsc(holder_name)
+	else:
+		holder_full = _('everybody')
+
+	if hid is None:
+		hid = -1
+	if holder_full is None or holder_full == '':
+		holder_full = holder_name
+	holder_label = mk_holder_label(holder_full, typ, claim)
+	icon, icon_name, a = load_face_fallback(hid, IconSize['small'], claim)
+	model.append([holder_label, read, write, execute, None, hid, holder_name, (claimtyp, claim), icon, icon_name, NOTE_LISTS_EMPTY.copy(), 0, 0, 0])
+
+def split_xattr_name(text):
+	elems = text.split('.')
+	return '.'.join(elems[0:-1]), elems[-1]
+
+def set_xattr_node(model, fqname, value):
+	node = get_xattr_node(model, fqname)
+	if node is False:
+		ancestry, name = split_xattr_name(fqname)
+		parentnode = get_xattr_node(model, ancestry)
+		if parentnode is False:
+			parentnode = set_xattr_node(model, ancestry, '')
+		node = model.append(parentnode, [name, '', fqname])
+	model[node][1] = value
+	return node	
+	
+def get_xattr_node(model, fqname):
+	if fqname == '':
+		return None
+	node = None
+	for elem in fqname.split('.'):
+		found = False
+		it = model.iter_children(node)
+		while it is not None:
+			if model.get_value(it, 0) == elem:
+				found = True
+				node = it
+				break
+			it = model.iter_next(it)
+		if not found:
+			#print "xattr not found", fqname, "at", elem
+			return False
+	return node
+
+def load_xattr(filepath):
+	list3.clear()
+	attrs = getxattr(filepath)
+	if attrs is None:
+		display_error(_("Can not load File Attributes"))
+		return
+	for fqname, value in iter(sorted(attrs.iteritems())):
+		set_xattr_node(list3, fqname, value)
+	tree3.expand_all()
+
+def load_fsattr(filepath):
+	list4.clear()
+	for key, value in iter(sorted(getfsattr(filepath).iteritems(), key=lambda i: i[0].lower()+i[0])):
+		list4.append([value, FSAttributes[key], key])
+
+def fixlinkdirpath(path):
+	if os.path.isdir(path) and os.path.islink(path) and not path.endswith('/'):
+		path += '/'
+	return path
+
+def make_numeric(s):
+	if s == '': return -1
+	else: return int(s)
+
+def getfacl(filepath, numeric=False):
+	flags = "-Ep"
+	if numeric: flags += 'n'
+	errno, getfacl_lines, errors = execve("getfacl", flags, fixlinkdirpath(filepath))
+	if errno == 0:
+		acls = {'default': {}}
+		for line in getfacl_lines:
+			line = line.strip()
+			if not line.startswith('#') and not len(line) == 0:
+				fields = line.split(':')
+				if len(fields) == 3:
+					claim, holder, rights = fields
+					if not acls.has_key(claim):
+						acls[claim] = {}
+					if numeric: holder = make_numeric(holder)
+					acls[claim][holder] = rights
+				else:
+					default, claim, holder, rights = fields
+					if not acls['default'].has_key(claim):
+						acls['default'][claim] = {}
+					if numeric: holder = make_numeric(holder)
+					acls['default'][claim][holder] = rights
+		#print acls
+		return acls
+	else:
+		errors.insert(0, (_("Running %s command:") % "getfacl")+"\n")
+		display_error(errors)
+		return None
+
+def getxattr(filepath, only_keys=False):
+	attr = {}
+	if xattr is not None:
+		try:
+			for name in xattr.listxattr(filepath):
+				name = name.encode('utf-8')
+				attr[name] = '' if only_keys else xattr.getxattr(filepath, name)
+		except IOError, exc:
+			# [Errno 95]
+			pass
+		#print attr
+		return attr
+	else:
+		errno, lines, errors = execve("getfattr", "--absolute-names", filepath)
+		if errno == 0:
+			for line in lines:
+				line = line.strip()
+				if not line.startswith('#') and not len(line) == 0:
+					if only_keys:
+						errno, value = 0, ''
+					else:
+						errno, value, errors = execve("getfattr", "-n", line, "--only-values", filepath)
+					if errno == 0:
+						attr[line] = ''.join(value)
+					else:
+						print ''.join(errors)
+			#print attr
+			return attr
+	return None
+
+def getfsattr(filepath):
+	fsattrs = {}
+	filepath = os.path.realpath(filepath)
+	errno, lines, errors = execve("lsattr", "-d", filepath)
+	if errno == 0:
+		for line in lines:
+			attr, rest = line.split(' ', 1)
+			for key, desc in FSAttributes.iteritems():
+				fsattrs[key] = attr.find(key) > -1
+	return fsattrs
+
+def mk_holder_label(name, typ, claim):
+	label = name
+	if typ == 'mode':
+		if claim in ['owner', 'user']:
+			label = "<u>%s</u>" % label
+		if claim != 'other':
+			label = "<b>%s</b>" % label
+	if claim in ['group', 'other']:
+		label = "<i>%s</i>" % label
+	return label
+
+
+def on_toggle(cell, path, tree, colnum):
+	model = tree.get_model()
+	if path is not None:
+		it = model.get_iter(path)
+		desired_bit = not model[it][colnum]
+		try:
+			bit = main_chmod(model[it][COLNUM_CLAIM_TUPLE], model[it][COLNUM_NAME], RightByColumn[colnum], desired_bit)
+		except LocalException, exc:
+			display_error(exc)
+			return False
+		except OSError, exc:
+			display_error(exc)
+			return False
+		model[it][colnum] = bit
+	show_notices()
+
+def on_toggle_lsattr(cell, path):
+	if path is not None:
+		it = list4.get_iter(path)
+		key = list4[it][2]
+		bit = not list4[it][0]
+		errno, stdout, stderr = execve("chattr", "%c%c" % ('+' if bit else '-', key), Global['Filename'])
+		if errno == 0:
+			try:
+				list4[it][0] = getfsattr(Global['Filename'])[key]
+			except KeyError:
+				pass
+			return True
+		else:
+			display_error(stderr)
+
+def mkmod(filename, claim, on, rights):
+	st = os.stat(filename)
+	newmode = st.st_mode
+	if not is_array(rights):
+		rights = [rights]
+	for right in rights:
+		mask = 1 << RightShift[right] << ClaimShift[claim]
+		if on:
+			newmode = newmode | mask
+		else:
+			newmode = newmode & ~mask
+	return newmode
+
+def mkacl(filename, claim, holder, on, rights, is_default=False):
+	acls = getfacl(filename)
+	if acls is None:
+		return None
+	try:
+		if is_default:
+			newacl = acls['default'][claim][holder]
+		else:
+			newacl = acls[claim][holder]
+	except KeyError:
+		newacl = '---'
+	if not is_array(rights):
+		rights = [rights]
+	for right in rights:
+		arr = list(newacl)
+		arr[RightPos3[right]] = right if on else '-'
+		newacl = ''.join(arr)
+	return newacl
+
+def main_chmod(claim, holder, rights, on, is_recursive=False, follow_symlinks=False):
+	typ, claim = claim
+	#holderid = None
+	#try:
+	#	holderid = int(holder)
+	#except ValueError:
+	#	if claim == 'user':
+	#		pwent = pwd.getpwnam(holder)
+	#		if pwent is not None:
+	#			holderid = pwent.pw_uid
+	#		else:
+	#			raise LocalException("user unknown")
+	#	elif claim == 'group':
+	#		grent = grp.getgrnam(holder)
+	#		if grent is not None:
+	#			holderid = grent.gr_gid
+	#		else:
+	#			raise LocalException("group unknown")
+	
+	if typ == 'spec':
+		newmode = mkmod(Global['Filename'], claim, on, rights)
+		print "chmod %o" % newmode
+		os.chmod(Global['Filename'], newmode)
+	elif typ in ['mode', 'acl']:
+		if typ == 'mode':
+			# FIXME if no acl support/present
+			holder = ''
+		newacl = mkacl(Global['Filename'], claim, holder, on, rights)
+		if newacl is None:
+			raise LocalException(_("Can not compute new ACL"))
+		acl_str = "%s:%s:%s" % (claim, holder, newacl)
+	elif typ == 'default':
+		newacl = mkacl(Global['Filename'], claim, holder, on, rights, is_default=True)
+		if newacl is None:
+			raise LocalException(_("Can not compute new default ACL"))
+		acl_str = "default:%s:%s:%s" % (claim, holder, newacl)
+	else:
+		raise LocalException("claim unknown: %s" % typ)
+
+	if typ in ['mode', 'acl', 'default']:
+		args = ["setfacl", "-m", acl_str, "--mask", "--logical" if follow_symlinks else "--physical"]
+		if is_recursive: args.append("--recursive")
+		print args
+		args.append(fixlinkdirpath(Global['Filename']))
+		errno, output, errors = execve(*args)
+		if errno != 0:
+			raise LocalException(''.join(errors))
+	return on
+
+
+def main_chown(widget, claim):
+	box, fr = new_child_window()
+	vb = gtk.VBox()
+	fr.add(vb)
+	scrl, tv, tvc, memberlist = new_userlist_treeview()
+	box.set_geometry_hints(scrl, min_width=-1, min_height=150)
+
+	fr_chown = gtk.Frame()
+	vb_chown = gtk.VBox(spacing=6)
+	vb_chown.set_border_width(6)
+	cb_show_system = gtk.CheckButton(Markup['show_system_users'])
+	hb_chown = gtk.HBox()
+	btn_chown = StockButton(stock=gtk.STOCK_OK)
+	progressbar = gtk.ProgressBar()
+
+	fr_chown.add(vb_chown)
+	vb_chown.pack_start(scrl, True, True, 0)
+	vb_chown.pack_start(cb_show_system, False, False, 0)
+	hb_chown.pack_start(btn_chown, True, False, 0)
+
+	if claim == 'owner':
+		box.set_title(_("Change Owner"))
+		hb = gtk.HBox(spacing=12)
+		fr_chown.set_label(_("Select new owner"))
+		btn_chown.set_markup(_("Change Owner"))
+
+		lbl_or = gtk.Label()
+		lbl_or.set_markup("<b>%s</b>" % _("OR"))
+		fr_takeown = gtk.Frame(_("Takeown"))
+		fr_takeown.set_size_request(200, -1)
+		vb_takeown = gtk.VBox(spacing=12)
+		vb_takeown.set_border_width(6)
+		lbl_takeown = gtk.Label(_("By pressing [Takeown], the program attempts to copy "
+			"the file preserving the most attributes that it could. "
+			"You will own the copy. Then the original file will be "
+			"replaced with the copy. This trick may work if you can "
+			"write the containing non-sticky directory."))
+		lbl_takeown.set_line_wrap(True)
+		lbl_takeown.set_width_chars(20)
+		lbl_takeown.set_alignment(0, 0)
+		hb_takeown = gtk.HBox()
+		btn_takeown = StockButton(_("Takeown"), gtk.STOCK_EXECUTE)
+
+		vb.pack_start(hb, True, True, 0)
+		hb.pack_start(fr_chown, True, True, 0)
+		hb.pack_start(lbl_or, False, False, 0)
+		hb.pack_start(fr_takeown, False, False, 0)
+		fr_takeown.add(vb_takeown)
+		vb_takeown.pack_start(lbl_takeown, False, False, 0)
+		vb_takeown.pack_start(hb_takeown, False, False, 0)
+		hb_takeown.pack_start(btn_takeown, True, False, 0)
+		vb_takeown.pack_start(progressbar, False, True, 0)
+
+		cb_show_system.connect('toggled', add_new_grant_fill, tv, tvc, 'user', cb_show_system)
+		add_new_grant_fill(None, tv, tvc, 'user', cb_show_system)
+		btn_chown.connect('clicked', main_chown_response, box, 'chown', tv, None, btn_chown, btn_takeown)
+		btn_takeown.connect('clicked', main_chown_response, box, 'takeown', None, progressbar, btn_chown, btn_takeown)
+
+	elif claim == 'group':
+		box.set_title(_("Change Group"))
+		fr_chown.set_label(_("Select new owner group"))
+		btn_chown.set_markup(_("Change Group"))
+		cb_show_foreign = gtk.CheckButton(Markup['show_foreign_groups'])
+		cb_show_foreign.set_data('uid', os.getuid())
+		
+		vb.pack_start(fr_chown, True, True, 0)
+		vb_chown.pack_start(cb_show_foreign, False, False, 0)
+
+		cb = lambda x: add_new_grant_fill(x, tv, tvc, 'group', cb_show_system, cb_show_foreign)
+		cb_show_system.connect('toggled', cb)
+		cb_show_foreign.connect('toggled', cb)
+		cb(None)
+		btn_chown.connect('clicked', main_chown_response, box, 'chgrp', tv, None, None, None)
+
+	vb_chown.pack_start(hb_chown, False, False, 0)
+	box.show_all()
+	progressbar.hide()
+
+
+def main_chown_response(widget, box, action, tv, progressbar, btn_chown, btn_takeown):
+	success = False
+	if action in ['chown', 'chgrp']:
+		itpath, a = tv.get_cursor()
+		if itpath is not None:
+			model = tv.get_model()
+			it = model.get_iter(itpath)
+			idnum = model.get_value(it, 1)
+			print action, idnum
+			if action == 'chown':
+				new_uid = idnum
+				new_gid = -1
+			else:
+				new_uid = -1
+				new_gid = idnum
+			try:
+				os.chown(Global['Filename'], new_uid, new_gid)
+				success = True
+			except OSError, exc:
+				display_error(exc)
+	elif action == 'takeown':
+		btn_chown.set_sensitive(False)
+		btn_takeown.set_sensitive(False)
+		box.set_data('destroy-func', box.destroy)
+		box.destroy = lambda: 0
+		box.connect('delete_event', conditional_close, _("Operation in progress"))
+		pulsate('start', progressbar)
+		#bckg_thrd = run_async(["sh", "-c", "sleep 2; echo test error>&2; echo test output; exit 1"], takeown_callback, box, progressbar, [btn_chown, btn_takeown])
+		# takeown removed '-d' flag in favour of '-R' with inverse meaning, as of yazzy-utils_0.1.66 (01 Jul 2016)
+		bckg_thrd = run_async(['takeown', '-v', Global['Filename']], takeown_callback, box, progressbar, [btn_chown, btn_takeown])
+		box.set_data('background-thread', bckg_thrd)
+	if success:
+		load_file()
+		box.destroy()
+
+def takeown_callback(thrd, results, box, progressbar, sensitive_widgets):
+	errno, outs, errs = results
+	pulsate('stop', progressbar)
+	progressbar.set_fraction(1.0)
+	if errno == 0:
+		if len(outs) > 0:
+			dlg = gtk.MessageDialog(box, gtk.DIALOG_MODAL | gtk.DIALOG_DESTROY_WITH_PARENT, gtk.MESSAGE_INFO, gtk.BUTTONS_OK, ''.join(outs))
+			dlg.run()
+			dlg.destroy()
+		load_file()
+		box.get_data('destroy-func').__call__()
+	else:
+		errs.insert(0, (_("Running %s command:") % "takeown")+"\n")
+		display_error(errs)
+		for wdg in sensitive_widgets: wdg.set_sensitive(True)
+		box.destroy = box.get_data('destroy-func')
+		progressbar.hide()
+		progressbar.set_fraction(0.0)
+
+def conditional_close(box, event, message_txt):
+	bckg_thrd = box.get_data('background-thread')
+	if bckg_thrd is None or bckg_thrd.isAlive():
+		dlg = gtk.MessageDialog(box, gtk.DIALOG_MODAL | gtk.DIALOG_DESTROY_WITH_PARENT, gtk.MESSAGE_INFO, gtk.BUTTONS_OK, message_txt)
+		dlg.run()
+		dlg.destroy()
+		return True
+	return False
+
+def pulsate(action, progressbar):
+	if action == 'start':
+		progressbar.show()
+		progressbar.pulse()
+		timer = gobject.timeout_add(250, pulsate, 'start', progressbar)
+		progressbar.set_data('timer', timer)
+	elif action == 'stop':
+		timer = progressbar.get_data('timer')
+		gobject.source_remove(timer)
+
+def revoke(claim_tuple, holder, is_recursive=False, follow_symlinks=False):
+	typ, claim = claim_tuple
+	if typ == 'acl':
+		acl_str = "%s:%s" % (claim, holder)
+	elif typ == 'default':
+		acl_str = "default:%s:%s" % (claim, holder)
+	elif typ == 'mode':
+		return main_chmod(claim_tuple, holder, ['r', 'w', 'x'], False, is_recursive) == False
+	else:
+		raise LocalException("claim unknown: %s" % typ)
+	if typ in ['acl', 'default']:
+		args = ["setfacl", "-x", acl_str, "--logical" if follow_symlinks else "--physical"]
+		if is_recursive: args.append("--recursive")
+		print args
+		args.append(fixlinkdirpath(Global['Filename']))
+		errno, output, errors = execve(*args)
+		if errno != 0:
+			raise LocalException(''.join(errors))
+		return True
+
+def get_ospath(store, node):
+	if node is None:
+		return "/"
+	return os.path.join(get_ospath(store, store.iter_parent(node)), store.get_value(node, 0))
+	
+def clear_dirs(store, parentnode):
+	it = store.iter_children(parentnode)
+	while it is not None:
+		itn = store.iter_next(it)
+		store.remove(it)
+		it = itn
+
+def stockid_by_ftype(path):
+	return gtk.STOCK_DIRECTORY if os.path.isdir(path) else gtk.STOCK_FILE
+
+def load_dirs(treeview, store, startnode = None):
+	clear_dirs(store, startnode)
+	path = get_ospath(store, startnode)
+	try:
+		entries = os.listdir(path)
+	except OSError, exc:
+		store[startnode][1] = gtk.STOCK_STOP
+		return
+		
+	entries.sort()
+	for entry in entries:
+		file = os.path.join(path, entry)
+		stock_id = stockid_by_ftype(file)
+		it = store.append(startnode, [entry, stock_id])
+		if os.path.isdir(file):
+			store.append(it, dummy_entry)
+	if startnode is not None:
+		Global['Lock']['Expand'] = True
+		treeview.expand_row(store.get_path(startnode), False)
+		store[startnode][1] = stockid_by_ftype(path)
+		Global['Lock']['Expand'] = False
+
+def expand_path(ospath):
+	if ospath is None: return None
+	node = None
+	store = tree2.get_model()
+	for elem in ospath.split('/')[1:]:
+		if node is not None:
+			tree2.expand_row(store.get_path(node), False)
+		found = False
+		it = store.iter_children(node)
+		while it is not None:
+			if store[it][0] == elem:
+				found = True
+				node = it
+				break
+			it = store.iter_next(it)
+		if not found:
+			if node is not None:
+				tree2.set_cursor(store.get_path(node))
+			return False
+	tree2.set_cursor(store.get_path(node))
+
+def on_node_expand(tree, it, itpath):
+	store = tree.get_model()
+	if not Global['Lock']['Expand']:
+		load_dirs(tree, store, it)
+
+def on_node_collapse(tree, it, itpath):
+	store = tree.get_model()
+	clear_dirs(store, it)
+	store.append(it, dummy_entry)
+
+def on_node_activate(tree, itpath, col):
+	store = tree.get_model()
+	if tree.row_expanded(itpath):
+		return tree.collapse_row(itpath)
+	else:
+		node = store.get_iter(itpath)
+		if os.path.isdir(get_ospath(store, node)):
+			return on_node_expand(tree, node, itpath)
+		
+
+def on_node_select(tree):
+	itpath, col = tree.get_cursor()
+	if itpath is not None:
+		store = tree.get_model()
+		load_file(get_ospath(store, store.get_iter(itpath)))
+
+def on_removable_item_select(treesel, btn_widget):
+	model, selected = treesel.get_selected()
+	btn_widget.set_sensitive(selected is not None)
+
+class StockButton(gtk.Button):
+	def __init__(self, label=None, stock=None, use_underline=True):
+		gtk.Button.__init__(self, label, stock, use_underline)
+		if label is not None:
+			self.set_markup(label)
+	def set_markup(self, label):
+		a = self.get_children()[0]
+		a = a.get_children()[0]
+		a, lbl = a.get_children()
+		lbl.set_markup(label)
+	def set_pixbuf(self, data):
+		a = self.get_children()[0]
+		a = a.get_children()[0]
+		img, a = a.get_children()
+		if data[0] is None:
+			img.set_from_icon_name(data[1], data[2])
+		else:
+			img.set_from_pixbuf(data[0])
+		img.props.visible = True
+
+class StockMenuItem(gtk.ImageMenuItem):
+	def __init__(self, label=None, stock_id=None, accel_group=None):
+		gtk.ImageMenuItem.__init__(self, stock_id, accel_group)
+		if label is not None:
+			self.set_label(label)
+
+def checkbutton_set_markup(chkbtn, text):
+	lbl = chkbtn.get_children()[0]
+	lbl.set_markup(text)
+
+
+def normpath(path):
+	norm = os.path.normpath(path)
+	if norm.startswith("//"):
+		norm = norm[1:]
+	return norm
+
+def on_filename_enter(widget):
+	text = widget.get_text()
+	if text != '':
+		text = normpath(text)
+		widget.set_text(text)
+		load_file(text)
+	
+def on_filename_blur(widget, event):
+	entr1.set_text(Global['Filename'] if Global['Filename'] is not None else '')
+
+def on_filename_refresh(widget):
+	load_file()
+
+def on_tree_click(tree, event, popup_menu):
+	if event.button == 3:
+		x = int(event.x)
+		y = int(event.y)
+		pathinfo = tree.get_path_at_pos(x, y)
+		if pathinfo is not None:
+			path, col, cellx, celly = pathinfo
+			tree.grab_focus()
+			tree.set_cursor(path, col, 0)
+			popup_menu.set_data('treeview', tree)
+			popup_menu.popup(None, None, None, event.button, event.time)
+		return True
+
+def on_click_revoke(widget, tree_OR_ctx_menu, do_follow_symlinks=False, is_default=False, is_recursive=False):
+	if isinstance(tree_OR_ctx_menu, gtk.TreeView):
+		tree = tree_OR_ctx_menu
+	else:
+		tree = tree_OR_ctx_menu.get_data('treeview')
+	itpath, a = tree.get_cursor()
+	model = tree.get_model()
+	it = model.get_iter(itpath)
+	try:
+		if model[it][COLNUM_NAME] == '':
+			if main_chmod(model[it][COLNUM_CLAIM_TUPLE], model[it][COLNUM_NAME], ['r', 'w', 'x'], False, is_recursive, do_follow_symlinks) == False:
+				load_file()
+		else:
+			if revoke(model[it][COLNUM_CLAIM_TUPLE], model[it][COLNUM_NAME], is_recursive, do_follow_symlinks):
+				model.remove(it)
+	except LocalException, exc:
+		display_error(exc)
+		print exc.message
+	except OSError, exc:
+		display_error(exc)
+		print exc.strerror
+	return False
+def on_click_revoke_rec(widget, tree_OR_ctx_menu, do_follow_symlinks, is_default=False):
+	return on_click_revoke(widget, tree_OR_ctx_menu, do_follow_symlinks, is_default, is_recursive=True)
+
+def on_click_remove_all_default_acl(widget):
+	errno, output, errors = execve("setfacl", "-k", fixlinkdirpath(Global['Filename']))
+	if errno == 0:
+		load_file()
+	else:
+		display_error(errors)
+
+def on_click_recommend(widget):
+	pass
+
+def load_user_list_into(model, typ, tuple_list):
+	model.clear()
+	for idnum, name in sorted(tuple_list, key=lambda e: e[1]):
+		face, icon_name, icon_size = load_face_fallback(idnum, IconSize['small'], typ)
+		model.append([name, idnum, face, icon_name])
+
+def new_userlist_treeview():
+	model = gtk.ListStore(str, int, gtk.gdk.Pixbuf, str)
+	scrl = gtk.ScrolledWindow()
+	scrl.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
+	tv = gtk.TreeView(model)
+	tv.set_data('colnum-id', 1)
+	tv.set_data('colnum-name', 0)
+	tv.connect("button-press-event", on_tree_click, ctx_menu_info)
+	scrl.add(tv)
+	tv.set_enable_search(True)
+	tv.set_search_column(0)
+	tv.set_rules_hint(True)
+	tvc = gtk.TreeViewColumn()
+	tv.append_column(tvc)
+	cr_pix = gtk.CellRendererPixbuf()
+	cr_txt = gtk.CellRendererText()
+	tvc.pack_start(cr_pix, False)
+	tvc.pack_start(cr_txt, True)
+	tvc.add_attribute(cr_pix, "pixbuf", 2)
+	tvc.add_attribute(cr_pix, "icon-name", 3)
+	tvc.add_attribute(cr_txt, "text", 0)
+	return scrl, tv, tvc, model
+
+def display_info(typ, idnum, name=None, is_default=False):
+	box, fr = new_child_window()
+	vb = gtk.VBox(spacing=14)
+	hb = gtk.HBox(spacing=14)
+	vb_detail = gtk.VBox()
+	img = gtk.Image()
+	face, icon_name, icon_size = load_face_fallback(idnum, IconSize['big'], typ)
+	if face is None:
+		img.set_from_icon_name(icon_name, icon_size)
+	else:
+		img.set_from_pixbuf(face)
+	imgfr = gtk.Frame()
+	imgfr.set_shadow_type(gtk.SHADOW_OUT)
+	vb_imgfr = gtk.VBox()
+
+	lbl2 = gtk.Label()
+	lbl2.set_alignment(0, 0)
+	scrl, tv, tvc, memberlist = new_userlist_treeview()
+	box.set_geometry_hints(scrl, min_width=-1, min_height=100)
+
+	if is_default and typ in ['user', 'group'] and idnum==-1:
+		if typ == 'user':
+			details = ["<big><b>%s</b></big>" % _("OWNER"), "<i>%s</i>" % _("The owner of newly created files")]
+		elif typ == 'group':
+			details = ["<big><b>%s</b></big>" % _("OWNER GROUP"), "<i>%s</i>" % _("The owner group of newly created files")]
+	elif typ == 'user':
+		try:
+			pwent = pwd.getpwuid(idnum)
+			username = pwent.pw_name
+			fullname = fullname_from_gecos(pwent.pw_gecos)
+			details = ["<big><b>%s</b></big>" % (fullname if fullname != '' else username), "Login: %s" % username, "Id: %s" % idnum, "Home: %s" % pwent.pw_dir]
+			gecos = pwent.pw_gecos.split(',')
+			n = 1
+			for dtln in ("Room", "Work Phone", "Home Phone", "Note"):
+				if len(gecos) > n and gecos[n] != '':
+					details.append("%s: %s" % (dtln, gecos[n]))
+				n += 1
+		except KeyError:
+			details = ["<big><b>%s</b></big>" % ("n/a" if name is None else name), _("Non-existent user"), "Id: %s" % (idnum if idnum != -1 else "n/a")]
+		load_user_list_into(memberlist, "group", get_groups(idnum))
+		lbl2.set_label(_("List of groups that user member of:"))
+		tvc.set_title(_("Group"))
+		tv.set_data('typ', "group")
+	elif typ == 'group':
+		try:
+			grent = grp.getgrgid(idnum)
+			name = grent.gr_name
+			desc = getgrdsc(name)
+			if desc is None: desc = ''
+		except KeyError:
+			name = "n/a"
+			desc = _("Non-existent group")
+		details = ["<big><b>%s</b></big>" % name, desc, "Id: %s" % (idnum if idnum != -1 else "n/a")]
+		load_user_list_into(memberlist, "user", get_members(idnum))
+		lbl2.set_label(_("List of group members:"))
+		tvc.set_title(_("User"))
+		tv.set_data('typ', "user")
+	elif typ == 'other':
+		details = ["<big><b>%s</b></big>" % _("Everybody"), "<i>%s</i>" % _("Everybody else who is not listed as permission holder")]
+	
+	for detail in details:
+		lbl = gtk.Label()
+		lbl.set_markup(detail)
+		lbl.set_selectable(True)
+		lbl.set_justify(gtk.JUSTIFY_LEFT)
+		lbl.set_alignment(0, 0)
+		vb_detail.pack_start(lbl, False, True, 0)
+	
+	fr.add(vb)
+	vb.pack_start(hb, False, True, 0)
+	hb.pack_start(vb_imgfr, False, False, 0)
+	vb_imgfr.pack_start(imgfr, False, False, 0)
+	imgfr.add(img)
+	hb.pack_start(vb_detail, True, True, 0)
+	if lbl2.get_label() != '':
+		vb.pack_start(lbl2, False, False, 0)
+		vb.pack_start(scrl, True, True, 0)
+	box.show_all()
+
+
+def on_click_info(widget, ctx_menu):
+	treeview = ctx_menu.get_data('treeview')
+	model = treeview.get_model()
+	itpath, a = treeview.get_cursor()
+	it = model.get_iter(itpath)
+	typ = treeview.get_data('typ')
+	name = None
+	is_default = False
+	if typ is None:
+		colnum_typ = treeview.get_data('colnum-typ')
+		if colnum_typ is None:
+			typ = model.get_value(it, COLNUM_CLAIM_TUPLE)[1]
+			if model.get_value(it, COLNUM_CLAIM_TUPLE)[0] == 'default':
+				is_default = True
+		else:
+			typ = model.get_value(it, colnum_typ)
+	colnum_id = treeview.get_data('colnum-id')
+	if colnum_id is None:
+		idnum = model.get_value(it, COLNUM_ID)
+	else:
+		idnum = model.get_value(it, colnum_id)
+	colnum_name = treeview.get_data('colnum-name')
+	if colnum_name is not None:
+		name = model.get_value(it, colnum_name)
+	display_info(typ, idnum, name, is_default)
+
+def on_click_xattr_clear(widget):
+	itpath, a = tree3.get_cursor()
+	it = list3.get_iter(itpath)
+	if delxattr(Global['Filename'], list3.get_value(it, 2)):
+		list3.set_value(it, 1, '')
+
+
+def show_notices():
+	if Global['Filename'] is None:
+		return
+	isfile = os.path.isfile(Global['Filename'])
+	notice = {'setuid': False, 'setgid': False,}
+	spec_notices = 0
+	
+	st = os.stat(Global['Filename'])
+	mode = st.st_mode
+	acls = getfacl(Global['Filename'], numeric=True)
+
+	if acls is not None:
+		for claim in acls.keys():
+			if claim == 'default': continue
+			for holder_id in acls[claim].keys():
+				rights = acls[claim][holder_id]
+				execute = rights.find('x') > -1
+				if execute:
+					if claim == 'user':
+						if holder_id > 0 and holder_id != st.st_uid:
+							notice['setuid'] = True
+							notice['setgid'] = True
+					elif claim == 'group':
+						notice['setuid'] = True
+						if holder_id > 0 and holder_id != st.st_gid:
+							notice['setgid'] = True
+					elif claim == 'other':
+						notice['setuid'] = True
+						notice['setgid'] = True
+	for claim in 'other', 'group', 'user':
+		if acls is None:
+			execute = mode & 0x1 != 0
+			if execute:
+				if claim == 'group':
+					notice['setuid'] = True
+				if claim == 'other':
+					notice['setuid'] = True
+					notice['setgid'] = True
+		mode = mode >> 3
+	specmode = {'setuid': mode & 0x04 != 0, 'setgid': mode & 0x02 != 0,}
+	
+	for n in specmode.keys():
+		if isfile and specmode[n] and notice[n]:
+			spec_notices += 1
+			mup = "<b><span foreground='darkred'>%s</span></b>"
+		else:
+			mup = "%s"
+		lbl = SpecChkb[n].get_data('label')
+		checkbutton_set_markup(SpecChkb[n], mup % lbl)
+	if spec_notices > 0:
+		expn1.set_expanded(True)
+	
+
+	if acls.has_key('mask'):
+		mask = map(lambda s: s!='-', list(acls['mask'][-1]))
+		ftype = 'file' if isfile else 'dir'
+		perm_name = get_permission_names(ftype=ftype)
+		it = list1.get_iter_first()
+		while it is not None:
+			typ, claim = list1[it][COLNUM_CLAIM_TUPLE]
+			if typ == 'acl' or claim != 'user':
+				disables = []
+				for n in range(0, 3):
+					bit = list1[it][COLNUM_READ + n]
+					if bit and not mask[n]:
+						disables.append(perm_name[n])
+						list1[it][COLNUM_READ + n + COLNUM_DISTANCE_BG] = True
+					else:
+						list1[it][COLNUM_READ + n + COLNUM_DISTANCE_BG] = False
+				txt = ', '.join(disables)
+				if len(disables) > 0:
+					if len(disables) == 1:
+						txt += _(" is disabled by ACL mask")
+					else:
+						txt += _(" are disabled by ACL mask")
+				list1[it][COLNUM_NOTE_LISTS]['Mask'] = [txt]
+			it = list1.iter_next(it)
+		refresh_notes()
+	
+	
+	is_exec, exec_type = main_check_exec_type()
+	cellr = tree1.get_column(COLNUM_EXECUTE).get_cell_renderers()[0]
+	#cellr.props.cell_background = 'grey95'
+	cellr.set_property('indicator-size', 13 if not isfile or is_exec else 10)
+	tree1.queue_draw()
+
+
+def show_notices_inaccessible():
+	it = list1.get_iter_first()
+	while it is not None:
+		typ, claim = list1.get_value(it, COLNUM_CLAIM_TUPLE)
+		if claim in ['user', 'group', 'other']:
+			idnum = list1.get_value(it, COLNUM_ID)
+			cause = []
+			if not is_accessible(Global['Filename'], claim, idnum, None, cause):
+				list1[it][COLNUM_NOTE_LISTS]['Inaccessible'] = ["<i>%s: %s</i>" % (_("ineffective"), cause[0])]
+		else:
+			print "unknown claim: %s" % claim
+		it = list1.iter_next(it)
+	refresh_notes()
+
+def refresh_notes():
+	it = list1.get_iter_first()
+	while it is not None:
+		notes = []
+		for txts in list1.get_value(it, COLNUM_NOTE_LISTS).itervalues():
+			for txt in txts:
+				if txt != '':
+					notes.append(txt)
+		list1.set_value(it, COLNUM_NOTE, '; '.join(notes))
+		it = list1.iter_next(it)
+
+def is_accessible(filepath, claim, idnum, gids=None, cause=None):
+	filepath = normpath(os.path.realpath(filepath))
+	return is_accessible_parent(filepath, claim, idnum, gids, cause)
+
+def is_accessible_parent(filepath, claim, idnum, gids=None, cause=None):
+	if claim == 'user' and gids is None:
+		gids = get_groups(idnum, None, get_names=False)
+	parent = os.path.dirname(filepath)
+	st = os.stat(parent)
+	owner, gowner = st.st_uid, st.st_gid
+	acls = getfacl(parent, numeric=True)
+	has_access = False
+	role = None
+	if claim == 'user':
+		if owner == idnum:
+			role = _("owner")
+			if acls["user"][-1].find('x') > -1:
+				has_access = True
+		elif gowner in gids:
+			role = _("group owner")
+			if acls["group"][-1].find('x') > -1:
+				has_access = True
+		elif acls["user"].has_key(idnum):
+			role = _("permission holder")
+			if acls["user"][idnum].find('x') > -1:
+				has_access = True
+		else:
+			group_access = False
+			for gid in acls["group"]:
+				if gid in gids:
+					role = _("member of permission holder group %d") % gid
+					group_access = True
+					if acls["group"][gid].find('x') > -1:
+						has_access = True
+					break
+			if not group_access:
+				if acls["other"][-1].find('x') > -1:
+					has_access = True
+	elif claim == 'group':
+		if gowner == idnum:
+			if acls["group"][-1].find('x') > -1:
+				has_access = True
+		elif acls["group"].has_key(idnum):
+			if acls["group"][idnum].find('x') > -1:
+				has_access = True
+		else:
+			if acls["other"][-1].find('x') > -1:
+				has_access = True
+	elif claim == 'other':
+		if acls["other"][-1].find('x') > -1:
+			has_access = True
+
+	if has_access:
+		if parent == '/':
+			return True
+		else:
+			return is_accessible_parent(parent, claim, idnum, gids, cause)
+	if cause is not None:
+		txt = _("can not enter directory <b>%s</b>") % parent
+		if role is not None:
+			txt += " %s %s" % (_("as"), role)
+		cause.append(txt)
+	return False
+
+def on_toggle_spec(widget, specname):
+	if Global['Lock']['SpecToggle']:
+		return None
+	desired = widget.get_active()
+	ok = False
+	try:
+		bit = main_chmod(('spec', 'spec'), None, SpecLabel[specname]['mask'], desired)
+		if bit == desired:
+			ok = True
+	except LocalException, exc:
+		display_error(exc)
+	except OSError, exc:
+		display_error(exc)
+	if not ok:
+		Global['Lock']['SpecToggle'] = True
+		widget.set_active(not desired)
+		Global['Lock']['SpecToggle'] = False
+	show_notices()
+	return ok
+
+def add_new_grant_fill(radiobutton, tv, tvc, typ, cb_show_system, cb_show_foreign=None):
+	lst = []
+	gid_filter = None
+	if cb_show_foreign is not None and not cb_show_foreign.get_active():
+		gid_filter = get_groups(cb_show_foreign.get_data('uid'), None, get_names=False)
+	if typ == "user":
+		for pwent in pwd.getpwall():
+			if cb_show_system.get_active() or pwent.pw_uid > SYSTEM_UID_MAX:
+				lst.append((pwent.pw_uid, pwent.pw_name))
+		tvc.set_title(_("User"))
+	elif typ == "group":
+		for grent in grp.getgrall():
+			if cb_show_system.get_active() or grent.gr_gid > SYSTEM_GID_MAX:
+				if gid_filter is None or grent.gr_gid in gid_filter:
+					lst.append((grent.gr_gid, grent.gr_name))
+		tvc.set_title(_("Group"))
+	else:
+		tvc.set_title("")
+	tv_sensitive = typ in ['user', 'group']
+	cb_show_system.set_sensitive(tv_sensitive)
+	tv.set_sensitive(tv_sensitive)
+	tv.set_data('typ', typ)
+	model = tv.get_model()
+	load_user_list_into(model, typ, lst)
+
+def add_new_grant_response(widget, box, tv, checkboxes, is_default, is_recursive=False, do_follow_symlinks_func=lambda:False):
+	typ = tv.get_data('typ')
+	claim = None
+	if typ in ['user', 'group']:
+		model = tv.get_model()
+		itpath, a = tv.get_cursor()
+		if itpath is None:
+			return False
+		it = model.get_iter(itpath)
+		name = model.get_value(it, 0)
+	else:
+		name = ''
+	if typ in ['user', 'group', 'other']:
+		claim = typ
+	if typ == 'owner': claim = 'user'
+	if typ == 'ownergroup': claim = 'group'
+	rights = []
+	for n in checkboxes:
+		if checkboxes[n].get_active():
+			rights.append(RightByColumn[n+1])
+	try:
+		claimtyp = 'default' if is_default else 'acl'
+		if main_chmod((claimtyp, claim), name, rights, True, is_recursive, do_follow_symlinks_func()):
+			load_file()
+			box.destroy()
+	except LocalException, exc:
+		display_error(exc)
+
+def get_permission_names(filepath=None, ftype=None):
+	if ftype is None:
+		if os.path.isdir(filepath): ftype = 'dir'
+		else: ftype = 'file'
+	if ftype == 'dir':
+		return _("List,Write,Enter").split(',')
+	else:
+		return _("Read,Write,Execute").split(',')
+
+def add_new_grant(widget, tree, dummy1=False, is_default=False):
+	box, fr = new_child_window()
+	if is_default:
+		box.set_title(_("Grant permissions for new files"))
+	else:
+		box.set_title(_("Grant permissions"))
+	vb = gtk.VBox(spacing=12)
+	fr_perm = gtk.Frame(_("Select Permissions"))
+	fr_holder = gtk.Frame(_("Select Permission Holder"))
+	hb_perm = gtk.HBox(spacing=6)
+	hb_perm.set_border_width(6)
+	cb = {}
+	n = 0
+	for t in get_permission_names(Global['Filename']):
+		cb[n] = gtk.CheckButton(t)
+		hb_perm.pack_start(cb[n], False, False, 0)
+		n += 1
+	isdir = os.path.isdir(Global['Filename'])
+	cb[0].set_active(True) # check on Read permission
+	if isdir: cb[2].set_active(True) # check on Enter permission on directories
+	hb_holder = gtk.HBox(spacing=6)
+	hb_holder.set_border_width(6)
+	vb_radio = gtk.VBox()
+	vb_tree = gtk.VBox()
+	rb = {}
+	rb_isowner = {}
+	cb_show_system = gtk.CheckButton(Markup['show_system_users'])
+	scrl, tv, tvc, memberlist = new_userlist_treeview()
+	box.set_geometry_hints(scrl, min_width=-1, min_height=200)
+	hb_buttons = gtk.HBox()
+	btn_grant = StockButton(_("Grant"), gtk.STOCK_ADD)
+	btn_grant.connect('clicked', add_new_grant_response, box, tv, cb, is_default)
+	hb_buttons.pack_start(btn_grant, True, False, 0)
+	if isdir:
+		btn_grant_rec = StockButton(_("Grant Recursively"), gtk.STOCK_COPY)
+		btn_grant_rec.set_tooltip_text(_("Set access permissions for selected user (or group) on this directory and on all files and subdirectories within it. New permissions may overwrite existing ones. This may take a while."))
+		cb_follow_symlinks = gtk.CheckButton(_("Follow symlinks"))
+		btn_grant_rec.connect('clicked', add_new_grant_response, box, tv, cb, is_default, True, cb_follow_symlinks.get_active)
+		cnt_grant_rec = gtk.VBox()
+		hb_buttons.pack_start(cnt_grant_rec, True, False, 0)
+		cnt_grant_rec.pack_start(btn_grant_rec, True, False, 0)
+		cnt_grant_rec.pack_start(cb_follow_symlinks, True, False, 0)
+
+	fr.add(vb)
+	vb.pack_start(fr_perm, False, False, 0)
+	fr_perm.add(hb_perm)
+	vb.pack_start(fr_holder, True, True, 0)
+	fr_holder.add(hb_holder)
+	hb_holder.pack_start(vb_radio, False, False, 0)
+	hb_holder.pack_start(vb_tree, True, True, 0)
+	for label, typ in (_("The owner"), "owner"), (_("A single user:"), "user"), (_("The owner group"), "ownergroup"), (_("A group of users:"), "group"), (_("Everybody else"), "other"):
+		rb[typ] = gtk.RadioButton(None if len(rb.keys()) == 0 else rb[rb.keys()[0]], label)
+		rb[typ].connect('toggled', add_new_grant_fill, tv, tvc, typ, cb_show_system)
+		vb_radio.pack_start(rb[typ], False, False, 0)
+	
+	vb_tree.pack_start(scrl, True, True, 0)
+	vb_tree.pack_start(cb_show_system, False, False, 0)
+	cb_show_system.connect('toggled', retoggle_radios, rb)
+	vb.pack_start(hb_buttons, False, True, 0)
+	box.show_all()
+	rb["user"].emit('clicked')
+
+def retoggle_radios(wdg, lst):
+	for rb in lst.itervalues():
+		if rb.get_active():
+			rb.emit('toggled')
+			break
+
+def new_child_window():
+	box = gtk.Window()
+	box.set_transient_for(win)
+	box.set_modal(True)
+	box.set_position(gtk.WIN_POS_CENTER_ON_PARENT)
+	box.set_destroy_with_parent(True)
+	sid = add_key_binding(box, 'Escape', lambda a, b, c, d: box.destroy())
+	fr = gtk.Frame()
+	fr.set_shadow_type(gtk.SHADOW_NONE)
+	fr.set_border_width(10)
+	box.add(fr)
+	return (box, fr)
+
+def add_new_xattr(widget, key = "user."):
+	box, fr = new_child_window()
+	vb = gtk.VBox(spacing=10)
+	hb_n = gtk.HBox()
+	hb_v = gtk.HBox()
+	hb_b = gtk.HBox(True)
+	lab_t = gtk.Label(_("New File Attribute"))
+	lab_n = gtk.Label(_("Key: "))
+	lab_v = gtk.Label(_("Value: "))
+	ent_n = gtk.Entry()
+	ent_n.set_text(key)
+	ent_v = gtk.Entry()
+	ent_v.set_text(' ')
+	btn_ok = gtk.Button(stock=gtk.STOCK_OK)
+	btn_ok.connect('clicked', add_new_xattr_response, box, ent_n, ent_v)
+	btn_cancel = gtk.Button(stock=gtk.STOCK_CANCEL)
+	btn_cancel.connect('clicked', lambda w, box: box.destroy(), box)
+	fr.add(vb)
+	vb.pack_start(lab_t, False, True, 0)
+	vb.pack_start(hb_n, False, True, 0)
+	vb.pack_start(hb_v, False, True, 0)
+	vb.pack_start(hb_b, False, True, 0)
+	hb_n.pack_start(lab_n, False, False, 0)
+	hb_n.pack_start(ent_n, True, True, 0)
+	hb_v.pack_start(lab_v, False, False, 0)
+	hb_v.pack_start(ent_v, True, True, 0)
+	hb_b.pack_start(btn_ok, False, False, 0)
+	hb_b.pack_start(btn_cancel, False, False, 0)
+	add_key_binding(box, 'Return', lambda a, b, c, d: add_new_xattr_response(None, box, ent_n, ent_v))
+	box.show_all()
+	ent_n.set_position(-1)
+
+def add_new_xattr_response(widget, box, name_entry, value_entry):
+	name = name_entry.get_text()
+	value = value_entry.get_text()
+	attrs = getxattr(Global['Filename'], only_keys=True)
+	if attrs is not None:
+		if attrs.has_key(name):
+			display_error(_("Attribute already exists."))
+		else:
+			if setxattr(Global['Filename'], name, value):
+				box.destroy()
+				load_xattr(Global['Filename'])
+
+def append_new_xattr(widget):
+	itpath, a = tree3.get_cursor()
+	it = list3.get_iter(itpath)
+	return add_new_xattr(None, list3.get_value(it, 2)+'.')
+
+def setxattr(filepath, fqname, value):
+	if value == '':
+		return delxattr(filepath, fqname)
+	if xattr is not None:
+		try:
+			xattr.setxattr(filepath, fqname, value)
+			return True
+		except IOError, exc:
+			display_error(exc)
+	else:
+		errno, lines, errors = execve("setfattr", "-n", fqname, "-v", value, filepath)
+		if errno == 0:
+			return True
+		else:
+			display_error(errors)
+	return False
+
+def delxattr(filepath, fqname, attrs=None):
+	if attrs is None:
+		attrs = getxattr(filepath, only_keys=True)
+	if attrs is None or not attrs.has_key(fqname):
+		return True
+	if xattr is not None:
+		try:
+			xattr.removexattr(filepath, fqname)
+			return True
+		except IOError, exc:
+			display_error(exc)
+	else:
+		errno, lines, errors = execve("setfattr", "-x", fqname, filepath)
+		if errno == 0:
+			return True
+		else:
+			display_error(errors)
+	return False
+
+def del_xattr(widget):
+	nodepath, a = tree3.get_cursor()
+	node = list3.get_iter(nodepath)
+	return recurse_xattr('del', node)
+
+def recurse_xattr(act, node, attrs=None, data={}):
+	if attrs is None:
+		attrs = getxattr(Global['Filename'], only_keys=True)
+	child_node = list3.iter_children(node)
+	ok = True
+	while child_node is not None:
+		child_node_next = list3.iter_next(child_node)
+		child_data = data.copy()
+		if act == 'rename':
+			child_name = list3.get_value(child_node, 0)
+			child_data['new_key'] = '.'.join([data['new_key'], child_name])
+		ok = recurse_xattr(act, child_node, attrs, child_data)
+		if not ok: break
+		child_node = child_node_next
+	if ok:
+		fqname = list3.get_value(node, 2)
+		if act == 'del':
+			ok = delxattr(Global['Filename'], fqname, attrs)
+			if ok:
+				list3.remove(node)
+		elif act == 'rename':
+			old_key = list3.get_value(node, 2)
+			value = list3.get_value(node, 1)
+			new_key = data['new_key']
+			ok = setxattr(Global['Filename'], new_key, value) and delxattr(Global['Filename'], old_key, attrs)
+			if ok:
+				ancestry, name = split_xattr_name(new_key)
+				list3.set_value(node, 0, name)
+				list3.set_value(node, 2, new_key)
+	return ok
+
+def rename_xattr(node, new_key):
+	fqname = list3.get_value(node, 2)
+	ancestry, key = split_xattr_name(fqname)
+	data = {}
+	data['new_key'] = '.'.join([ancestry, new_key])
+	attrs = getxattr(Global['Filename'])
+	return recurse_xattr('rename', node, attrs, data)
+
+def new_file_dialog(title, action):
+	return gtk.FileChooserDialog(title=title, parent=win, action=action, buttons=(gtk.STOCK_CANCEL, gtk.RESPONSE_REJECT, gtk.STOCK_OK, gtk.RESPONSE_ACCEPT))
+
+def export_xattr(widget):
+	filename = None
+	dialog = new_file_dialog(_("Export File Attributes"), gtk.FILE_CHOOSER_ACTION_SAVE)
+	if dialog.run() == gtk.RESPONSE_ACCEPT:
+		filename = dialog.get_filename()
+	dialog.destroy()
+	if filename is not None:
+		errno, lines, errors = execve("getfattr", "--absolute-names", "-d", Global['Filename'])
+		if errno == 0:
+			try:
+				fh = open(filename, "w")
+				fh.write(''.join(lines[1:]))
+				fh.close()
+			except IOError, exc:
+				display_error(exc)
+		else:
+			errors.insert(0, (_("Running %s command:") % "getfattr")+"\n")
+			display_error(errors)
+
+def restore_xattr(widget):
+	filename = None
+	dialog = new_file_dialog(_("Restore File Attributes from ..."), gtk.FILE_CHOOSER_ACTION_OPEN)
+	if dialog.run() == gtk.RESPONSE_ACCEPT:
+		filename = dialog.get_filename()
+	dialog.destroy()
+	if filename is not None:
+		pipe_read, pipe_write = os.pipe()
+		fhnd_write = os.fdopen(pipe_write, 'w')
+		success = False
+		try:
+			fr = open(filename, 'r')
+			fhnd_write.write("# file: %s\n" % Global['Filename'])
+			while True:
+				line = fr.readline()
+				if line == '':
+					break
+				if not line.startswith('# file: '):
+					fhnd_write.write(line)
+			success = True
+		except IOError, exc:
+			display_error(exc)
+		try:
+			fr.close()
+			fhnd_write.close()
+			if not success:
+				os.close(pipe_read)
+		except IOError, exc:
+			display_error(exc)
+		if not success:
+			display_error(_("Can not restore"))
+			return False
+		
+		errno, lines, errors = execve("setfattr", "--restore", "/proc/self/fd/%d" % pipe_read)
+		try:
+			os.close(pipe_read)
+		except IOError, exc:
+			display_error(exc)
+		if errno == 0:
+			load_xattr(Global['Filename'])
+		else:
+			errors.insert(0, (_("Running %s command:") % "setfattr")+"\n")
+			display_error(errors)
+
+
+def xattr_edited_callback(cellrenderer, nodepath, new_text, colnum):
+	node = list3.get_iter(nodepath)
+	if colnum == 0:
+		name = list3.get_value(node, 0)
+		if name != new_text:
+			rename_xattr(node, new_text)
+	elif colnum == 1:
+		attr_name = list3.get_value(node, 2)
+		if setxattr(Global['Filename'], attr_name, new_text):
+			list3.set_value(node, 1, new_text)
+
+
+
+
+### MAIN
+gettext.textdomain("PermEd")
+oparser = OptionParser()
+#oparser.add_option("-T", "--no-tree", dest="no_tree", action="store_true", default=False, help="do not load directory tree")
+(main_options, main_args) = oparser.parse_args()
+try:
+	gtk.settings_get_default().props.gtk_button_images = True
+except AttributeError:
+	pass
+if not sys.argv[0].startswith("/usr/"):
+	gettext.bindtextdomain("PermEd", os.getcwd())
+RightByColumn = [None, 'r', 'w', 'x']
+RightShift = {'r': 2, 'w': 1, 'x': 0, 0x4: 2, 0x2: 1, 0x1: 0}
+RightPos3 = {'r': 0, 'w': 1, 'x': 2}
+ClaimShift = {'other': 0, 'group': 3, 'user': 6, 'spec': 9}
+Global = { 'Lock': {'Expand': False, 'Filename': False, 'SpecToggle': False}, 'Filename': None, }
+dummy_entry = [".", gtk.STOCK_DIRECTORY]
+NOTE_LISTS_EMPTY = {'Mask': [], 'Inaccessible': []}
+SpecLabel = {
+	'setuid': {
+		'file': {
+			'short': _("Set owner's privileges"),
+			'long': _("Anyone who executes this (binary program) file, automatically impersonates file's owner"),
+		},
+		'dir': {
+			'short': _("Inherit owner user"),
+			'long': _("Newly created files and directories (on first depth) automatically owned by the same user as this directory - If supported by system"),
+		},
+		'mask': 0x4,
+	},
+	'setgid': {
+		'file': {
+			'short': _("Set owner group's privileges"),
+			'long': _("Anyone who executes this (binary program) file, automatically gains privileges of file's owner group"),
+		},
+		'dir': {
+			'short': _("Inherit owner group"),
+			'long': _("Newly created files and directories (on first depth) automatically owned by the same group as this directory"),
+		},
+		'mask': 0x2,
+	},
+	'sticky': {
+		'file': {
+			'short': _("Sticky"),
+			'long': _("This bit probably has no meaning"),
+		},
+		'dir': {
+			'short': _("Only owners can delete files"),
+			'long': _("Only owners can delete files in this directory, but only on first depth (ie. sticky)"),
+		},
+		'mask': 0x1,
+	},
+}
+Pixbuf = {'default': {}, 'face': {}}
+DefaultPixbufName = {'user': 'avatar-default', 'owner': 'avatar-default', 'group': 'system-users', 'other': 'emblem-web'}
+icontheme = gtk.icon_theme_get_default()
+IconSize = {'small': gtk.ICON_SIZE_BUTTON, 'medium': gtk.ICON_SIZE_DND, 'big': gtk.ICON_SIZE_DIALOG}
+Gomb = {}
+Markup = {
+	'owner': '<b><u>%s</u></b>\n' % _("Owner"),
+	'group': '<b><u>%s</u></b>\n' % _("Owner Group"),
+	'show_system_users': _("Show system users, groups"),
+	'show_foreign_groups': _("Show foreign groups"),
+}
+EXEC_TYPE_BINARY, EXEC_TYPE_SCRIPT = range(0, 2)
+SYSTEM_UID_MAX = 999
+SYSTEM_GID_MAX = 999
+FSAttributes = {
+	'A': _("Do not update access-time"),
+	'a': _("Append only"),
+	'C': _("Do not Copy-on-Write"),
+	'c': _("Kernel-level compression"),
+	'D': _("Synchronous I/O on directory"),
+	'd': _("Skipped by dump(8) program"),
+	'E': _("Has compression error"),
+	'e': _("Using extents for mapping the blocks on disk"),
+	'h': _("Larger (was) than 2TB"),
+	'I': _("Indexed using hashed trees"),
+	'i': _("Immutable"),
+	'j': _("Journaling"),
+	'S': _("Synchronous I/O on file"),
+	's': _("Secure delete"),
+	'T': _("Try to place subentries to separate block groups"),
+	't': _("No tail-merging"),
+	'u': _("Allow undeletion"),
+	'X': _("Raw content of compressed file can be accessed directly"),
+	'Z': _("Dirty compressed file"),
+}
+grdsc_cache = {}
+
+
+
+
+
+### Setup GUI
+win = gtk.Window()
+win.set_title(_("Permission & Attribute Editor"))
+win.set_default_size(650, 400)
+win.connect('delete-event', gtk.main_quit)
+start_evt = win.connect('map-event', main_win_show)
+add_key_binding(win, 'Escape', gtk.main_quit)
+
+hpane1 = gtk.HPaned()
+hpane1.set_position(200)
+hpane1.connect('notify', pane_adjusting)
+win.add(hpane1)
+
+### Left panel
+scrl2 = gtk.ScrolledWindow()
+scrl2.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
+hpane1.pack1(scrl2, True, True)
+
+stor2 = gtk.TreeStore(str, str)
+tree2 = gtk.TreeView(stor2)
+tree2.set_headers_visible(False)
+tree2.set_enable_search(True)
+tree2.set_enable_tree_lines(True)
+
+tvcol2 = gtk.TreeViewColumn()
+cellr2 = gtk.CellRendererPixbuf()
+cellr3 = gtk.CellRendererText()
+tvcol2.pack_start(cellr2, False)
+tvcol2.pack_start(cellr3, True)
+tvcol2.add_attribute(cellr2, "stock-id", 1)
+tvcol2.add_attribute(cellr3, "text", 0)
+tree2.append_column(tvcol2)
+
+tree2.connect("row-expanded", on_node_expand)
+tree2.connect("row-collapsed", on_node_collapse)
+tree2.connect("row-activated", on_node_activate)
+tree2.connect("cursor-changed", on_node_select)
+scrl2.add(tree2)
+
+
+### Right panel
+vbox1 = gtk.VBox()
+hpane1.pack2(vbox1, True, True)
+entr1 = gtk.Entry()
+entr1.connect("activate", on_filename_enter)
+entr1.connect("focus-out-event", on_filename_blur)
+Gomb['reload'] = StockButton('', gtk.STOCK_REFRESH)
+Gomb['reload'].connect('clicked', on_filename_refresh)
+
+hbox3 = gtk.HBox()
+hbox3.pack_start(entr1, True, True, 0)
+hbox3.pack_start(Gomb['reload'], False, False, 0)
+vbox1.pack_start(hbox3, False, True, 0)
+
+note1 = gtk.Notebook()
+vbox1.pack_start(note1, True, True, 0)
+
+
+### Tab 1: Permissions
+page1 = gtk.VBox()
+page1b = gtk.VBox()
+note1.append_page(page1, gtk.Label(_("Permissions")))
+note1.append_page(page1b, gtk.Label(_("Default Perm")))
+
+hbox4 = gtk.HBox()
+page1.pack_start(hbox4, False, True, 6)
+for n in 'owner', 'group':
+	Gomb[n] = StockButton('', gtk.STOCK_EDIT)
+	Gomb[n].connect('clicked', main_chown, n)
+	hbox4.pack_start(Gomb[n], True, False, 0)
+
+lab1b = gtk.Label(_("New files created in this directory will get these permissions."))
+lab1b.set_alignment(0, 0)
+page1b.pack_start(lab1b, False, False, 6)
+
+
+### Setup Permissions Table
+list1 = gtk.ListStore(str, int, int, int, str, int, str, gobject.TYPE_PYOBJECT, gtk.gdk.Pixbuf, str, gobject.TYPE_PYOBJECT, int, int, int)
+list1b = gtk.ListStore(str, int, int, int, str, int, str, gobject.TYPE_PYOBJECT, gtk.gdk.Pixbuf, str, gobject.TYPE_PYOBJECT, int, int, int)
+COLNUM_LABEL, COLNUM_READ, COLNUM_WRITE, COLNUM_EXECUTE, COLNUM_NOTE, COLNUM_ID, COLNUM_NAME, COLNUM_CLAIM_TUPLE, COLNUM_PIX, COLNUM_ICON_NAME, COLNUM_NOTE_LISTS, COLNUM_READ_BG, COLNUM_WRITE_BG, COLNUM_EXECUTE_BG = range(0, 14)
+COLNUM_DISTANCE_BG = 10
+tree1 = gtk.TreeView(list1)
+tree1b = gtk.TreeView(list1b)
+
+for tree in tree1, tree1b:
+	colnum = 0
+	for colname in _("Grantee,Read/List,Write,Execute/Enter,").split(','):
+		tvcol = gtk.TreeViewColumn(colname)
+		tree.append_column(tvcol)
+	
+		if colnum == COLNUM_LABEL:
+			cellr = gtk.CellRendererPixbuf()
+			tvcol.pack_start(cellr, False)
+			tvcol.add_attribute(cellr, "pixbuf", COLNUM_PIX)
+			tvcol.add_attribute(cellr, "icon-name", COLNUM_ICON_NAME)
+			cellr = gtk.CellRendererText()
+			tvcol.pack_start(cellr, True)
+			tvcol.add_attribute(cellr, "markup", colnum)
+		elif colnum in [COLNUM_READ, COLNUM_WRITE, COLNUM_EXECUTE]:
+			cellr = gtk.CellRendererToggle()
+			cellr.connect("toggled", on_toggle, tree, colnum)
+			tvcol.pack_start(cellr, True)
+			tvcol.add_attribute(cellr, "active", colnum)
+			tvcol.add_attribute(cellr, "inconsistent", colnum + COLNUM_DISTANCE_BG)
+		elif colnum == COLNUM_NOTE:
+			cellr = gtk.CellRendererText()
+			cellr.set_property('editable', True)
+			tvcol.pack_start(cellr, True)
+			tvcol.add_attribute(cellr, "markup", colnum)
+		colnum += 1
+
+
+tree1.set_search_column(COLNUM_NAME)
+tree1sel = tree1.get_selection()
+scrl1 = gtk.ScrolledWindow()
+scrl1.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
+scrl1.add(tree1)
+page1.pack_start(scrl1, True, True, 0)
+
+tree1bsel = tree1b.get_selection()
+tree1b.set_search_column(COLNUM_NAME)
+scrl1b = gtk.ScrolledWindow()
+scrl1b.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
+scrl1b.add(tree1b)
+page1b.pack_start(scrl1b, True, True, 0)
+
+
+
+expn1 = gtk.Expander(_("Special"))
+expn1.set_expanded(False)
+page1.pack_start(expn1, False, False, 0)
+vbox2 = gtk.VBox()
+expn1.add(vbox2)
+
+
+SpecChkb = {}
+for spec in SpecLabel.keys():
+	SpecChkb[spec] = gtk.CheckButton()
+	SpecChkb[spec].connect('toggled', on_toggle_spec, spec)
+	vbox2.pack_start(SpecChkb[spec], False, False, 0)
+
+
+hbox2 = gtk.HBox()
+hbox2b = gtk.HBox()
+page1.pack_start(hbox2, False, False, 4)
+page1b.pack_start(hbox2b, False, False, 4)
+for pre, is_default, hb, tree, treesel in ('', False, hbox2, tree1, tree1sel), ('default-', True, hbox2b, tree1b, tree1bsel):
+	for key, stock, label, callback in ('grant', gtk.STOCK_ADD, _("Grant..."), add_new_grant), ('revoke', gtk.STOCK_DELETE, _("Revoke"), on_click_revoke):
+	#,('recommend', gtk.STOCK_APPLY, _("Recommends"), on_click_recommend)
+		Gomb[pre+key] = StockButton(label, stock)
+		Gomb[pre+key].connect('clicked', callback, tree, False, is_default)
+		hb.pack_start(Gomb[pre+key], True, False, 0)
+	treesel.connect('changed', on_removable_item_select, Gomb[pre+'revoke'])
+
+Gomb['default-clear'] = StockButton(_("Remove all default perms"), gtk.STOCK_NO)
+Gomb['default-clear'].connect('clicked', on_click_remove_all_default_acl)
+hb.pack_start(Gomb['default-clear'], True, False, 0)
+
+
+ctx_menu_perm = gtk.Menu()
+ctx_menu_perm_info = StockMenuItem(None, gtk.STOCK_INFO)
+ctx_menu_perm_info.connect("activate", on_click_info, ctx_menu_perm)
+ctx_menu_perm_revoke = StockMenuItem(_("Revoke"), gtk.STOCK_DELETE)
+ctx_menu_perm_revoke.connect("activate", on_click_revoke, ctx_menu_perm)
+ctx_menu_perm_revoke_rec = gtk.MenuItem(_("Revoke Recursively"))
+ctx_menu_perm_revoke_rec_menu = gtk.Menu()
+ctx_menu_perm_revoke_rec_follow_symlinks = StockMenuItem(_("Follow symlinks"), gtk.STOCK_DELETE)
+ctx_menu_perm_revoke_rec_follow_symlinks.connect("activate", on_click_revoke_rec, ctx_menu_perm, True)
+ctx_menu_perm_revoke_rec_no_follow_symlinks = StockMenuItem(_("No follow symlinks"), gtk.STOCK_DELETE)
+ctx_menu_perm_revoke_rec_no_follow_symlinks.connect("activate", on_click_revoke_rec, ctx_menu_perm, False)
+ctx_menu_perm.append(ctx_menu_perm_info)
+ctx_menu_perm.append(gtk.SeparatorMenuItem())
+ctx_menu_perm.append(ctx_menu_perm_revoke)
+ctx_menu_perm.append(ctx_menu_perm_revoke_rec)
+ctx_menu_perm_revoke_rec.set_submenu(ctx_menu_perm_revoke_rec_menu)
+ctx_menu_perm_revoke_rec_menu.append(ctx_menu_perm_revoke_rec_no_follow_symlinks)
+ctx_menu_perm_revoke_rec_menu.append(ctx_menu_perm_revoke_rec_follow_symlinks)
+ctx_menu_perm.show_all()
+tree1.connect("button-press-event", on_tree_click, ctx_menu_perm)
+tree1b.connect("button-press-event", on_tree_click, ctx_menu_perm)
+
+
+
+
+### Tab 2: X-Attributes
+page2 = gtk.VBox()
+note1.append_page(page2, gtk.Label(_("Extended Attributes")))
+
+list3 = gtk.TreeStore(str, str, str)
+tree3 = gtk.TreeView(list3)
+tree3sel = tree3.get_selection()
+tree3.set_search_column(1)
+tree3.set_enable_tree_lines(True)
+tree3.set_rules_hint(True)
+scrl3 = gtk.ScrolledWindow()
+scrl3.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
+scrl3.add(tree3)
+page2.pack_start(scrl3, True, True, 0)
+
+Gomb['xattr'] = [
+	(StockButton(stock=gtk.STOCK_ADD), add_new_xattr),
+	(StockButton(stock=gtk.STOCK_DELETE), del_xattr),
+	(StockButton(_("Export..."), gtk.STOCK_SAVE_AS), export_xattr),
+	(StockButton(_("Restore..."), gtk.STOCK_REVERT_TO_SAVED), restore_xattr),
+]
+hbox5 = gtk.HBox()
+page2.pack_start(hbox5, False, False, 4)
+for btn, callback in Gomb['xattr']:
+	btn.connect('clicked', callback)
+	hbox5.pack_start(btn, True, False, 0)
+tree3sel.connect('changed', on_removable_item_select, Gomb['xattr'][1][0])
+
+
+
+ctx_menu_xattr = gtk.Menu()
+ctx_menu_xattr_add = StockMenuItem(None, gtk.STOCK_ADD)
+ctx_menu_xattr_add.connect("activate", append_new_xattr)
+ctx_menu_xattr_clear = StockMenuItem(_("Clear value"), gtk.STOCK_CLEAR)
+ctx_menu_xattr_clear.connect("activate", on_click_xattr_clear)
+ctx_menu_xattr_delete = StockMenuItem(_("Remove Key"), gtk.STOCK_DELETE)
+ctx_menu_xattr_delete.connect("activate", del_xattr)
+ctx_menu_xattr.append(ctx_menu_xattr_add)
+ctx_menu_xattr.append(ctx_menu_xattr_clear)
+ctx_menu_xattr.append(ctx_menu_xattr_delete)
+ctx_menu_xattr.show_all()
+tree3.connect("button-press-event", on_tree_click, ctx_menu_xattr)
+
+
+ctx_menu_info = gtk.Menu()
+ctx_menu_info_1 = StockMenuItem(None, gtk.STOCK_INFO)
+ctx_menu_info_1.connect("activate", on_click_info, ctx_menu_info)
+ctx_menu_info.append(ctx_menu_info_1)
+ctx_menu_info.show_all()
+
+
+
+### Setup XAttr Table
+for title, colnum in (_("Name"), 0), (_("Value"), 1):
+	tvcol = gtk.TreeViewColumn(title)
+	tree3.append_column(tvcol)
+	
+	cellr = gtk.CellRendererText()
+	cellr.connect('edited', xattr_edited_callback, colnum)
+	cellr.set_property('editable', True)
+	tvcol.pack_start(cellr, True)
+	tvcol.add_attribute(cellr, "text", colnum)
+
+
+
+### Tab 3: FS-Attributes
+page3 = gtk.VBox()
+note1.append_page(page3, gtk.Label(_("Filesystem Attributes")))
+list4 = gtk.ListStore('gboolean', str, str)
+tree4 = gtk.TreeView(list4)
+tree4.set_rules_hint(True)
+scrl4 = gtk.ScrolledWindow()
+scrl4.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
+scrl4.add(tree4)
+page3.pack_start(scrl4, True, True, 0)
+
+tvcol4_0 = gtk.TreeViewColumn('')
+tree4.append_column(tvcol4_0)
+cellr4_0 = gtk.CellRendererText()
+cellr4_0.set_property('weight', 700)
+tvcol4_0.pack_start(cellr4_0, True)
+tvcol4_0.add_attribute(cellr4_0, "text", 2)
+
+tvcol4_1 = gtk.TreeViewColumn('')
+tree4.append_column(tvcol4_1)
+cellr4_1 = gtk.CellRendererToggle()
+cellr4_1.connect('toggled', on_toggle_lsattr)
+tvcol4_1.pack_start(cellr4_1, True)
+tvcol4_1.add_attribute(cellr4_1, "active", 0)
+
+tvcol4_2 = gtk.TreeViewColumn(_("Attribute"))
+tree4.append_column(tvcol4_2)
+cellr4_2 = gtk.CellRendererText()
+tvcol4_2.pack_start(cellr4_2, True)
+tvcol4_2.add_attribute(cellr4_2, "text", 1)
+
+
+
+
+win.show_all()
+gtk.main()
