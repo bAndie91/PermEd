@@ -1610,7 +1610,7 @@ def add_new_xattr(widget, key = 'user.'):
 	ent_n = gtk.Entry()
 	ent_n.set_text(key)
 	ent_v = gtk.Entry()
-	ent_v.set_text(' ')
+	ent_v.set_text('?')
 	btn_ok = gtk.Button(stock=gtk.STOCK_OK)
 	btn_ok.connect('clicked', add_new_xattr_response, box, ent_n, ent_v)
 	btn_cancel = gtk.Button(stock=gtk.STOCK_CANCEL)
@@ -1643,9 +1643,12 @@ def add_new_xattr_response(widget, box, name_entry, value_entry):
 				load_xattr(Global['Filename'])
 
 def append_new_xattr(widget):
+	kvargs = {}
 	itpath, a = tree3.get_cursor()
-	it = list3.get_iter(itpath)
-	return add_new_xattr(None, list3.get_value(it, 2)+'.')
+	if itpath is not None:
+		it = list3.get_iter(itpath)
+		kvargs['key'] = list3.get_value(it, 2)+'.'
+	return add_new_xattr(None, **kvargs)
 
 def setxattr(filepath, fqname, value):
 	if value == '':
@@ -2102,7 +2105,7 @@ scrl3.add(tree3)
 page2.pack_start(scrl3, True, True, 0)
 
 Gomb['xattr'] = [
-	(StockButton(stock=gtk.STOCK_ADD), add_new_xattr),
+	(StockButton(stock=gtk.STOCK_ADD), append_new_xattr),
 	(StockButton(stock=gtk.STOCK_DELETE), del_xattr),
 	(StockButton(_("Export..."), gtk.STOCK_SAVE_AS), export_xattr),
 	(StockButton(_("Restore..."), gtk.STOCK_REVERT_TO_SAVED), restore_xattr),
