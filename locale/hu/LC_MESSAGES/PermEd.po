@@ -16,6 +16,10 @@ msgstr "Csak hozzáfűzés"
 msgid "Do not perform Copy-on-Write"
 msgstr "Nem csinál Copy-on-Write műveletet"
 
+# file: PermEd, line: 1881
+msgid "Do not Copy-on-Write"
+msgstr "Ne legyen Másolás Íráskor (Copy-on-Write)"
+
 msgid "Kernel-level compression"
 msgstr "Kernel-szintű tömörítés"
 
@@ -355,3 +359,34 @@ msgstr "Követve a linkeket"
 msgid "Not following symlinks"
 msgstr "Nem követve a linkeket"
 
+# file: PermEd, line: 397
+msgid "Can not load ACLs"
+msgstr "ACL nem betölthető"
+
+# file: PermEd, line: 866
+msgid "Operation in progress"
+msgstr "Művelet folyamatban"
+
+# file: PermEd, line: 1182
+msgid "Room"
+msgstr "Szoba"
+
+# file: PermEd, line: 1182
+msgid "Work Phone"
+msgstr "Munkahelyi telefon"
+
+# file: PermEd, line: 1182
+msgid "Home Phone"
+msgstr "Otthoni telefon"
+
+# file: PermEd, line: 1182
+msgid "Note"
+msgstr "Megjegyzés"
+
+# file: PermEd, line: 1556
+msgid "Follow symlinks"
+msgstr "Szimlinkek követése"
+
+# file: PermEd, line: 2073
+msgid "No follow symlinks"
+msgstr "Ne kövessen szimlinkeket"

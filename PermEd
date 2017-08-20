@@ -38,7 +38,7 @@ def add_key_binding(widget, keyname, callback):
 def display_error(e):
 	text = None
 	if isinstance(e, OSError) or isinstance(e, IOError):
-		text = "#" + str(e.errno) + "\n" + e.strerror + "\n" + e.filename
+		text = '#' + str(e.errno) + '\n' + e.strerror + '\n' + e.filename
 	elif isinstance(e, Exception):
 		text = e.message
 	elif type(e) == type([]):
@@ -181,12 +181,12 @@ def load_face(uid, size):
 		if os.access(iconfile, os.O_RDONLY):
 			return load_face_from_file(iconfile, uid, size)
 	
-	filename = os.path.join(pwent.pw_dir, ".gnome2/gdm")
+	filename = os.path.join(pwent.pw_dir, '.gnome2/gdm')
 	iconfile = None
 	if iniparse is not None and os.access(filename, os.O_RDONLY):
 		try:
 			# FIXME what is the format of this file?
-			value = iniparse(file(filename))["face"]["photo"]
+			value = iniparse(file(filename))['face']['photo']
 			if type(value) == type(''):
 				iconfile = value
 		except KeyError:
@@ -194,11 +194,11 @@ def load_face(uid, size):
 	if iconfile is not None and os.access(iconfile, os.O_RDONLY):
 		return load_face_from_file(iconfile, uid, size)
 	
-	filename = os.path.join("/var/lib/AccountsService/user", pwent.pw_name)
-	iconfile = os.path.join("/var/lib/AccountsService/icons", pwent.pw_name)
+	filename = os.path.join('/var/lib/AccountsService/user', pwent.pw_name)
+	iconfile = os.path.join('/var/lib/AccountsService/icons', pwent.pw_name)
 	if iniparse is not None and os.access(filename, os.O_RDONLY):
 		try:
-			value = iniparse(file(filename))["User"]["Icon"]
+			value = iniparse(file(filename))['User']['Icon']
 			if type(value) == type(''):
 				iconfile = value
 		except KeyError:
@@ -234,7 +234,7 @@ def getgrdsc(grnam):
 	if grdsc_cache.has_key(grnam):
 		return grdsc_cache[grnam]
 	try:
-		fh = open("/etc/grnam", 'r')
+		fh = open('/etc/grnam', 'r')
 	except IOError:
 		return None
 	grdsc_cache.clear()
@@ -424,7 +424,7 @@ def load_file(filepath=None):
 				holder_name = _('everybody')
 				holder_full = holder_name
 			holder_label = mk_holder_label(holder_full, 'mode', claim)
-			list_item = [holder_label, read, write, execute, None, hid, holder_name, ("mode", claim), icon, icon_name, NOTE_LISTS_EMPTY.copy(), 0, 0, 0]
+			list_item = [holder_label, read, write, execute, None, hid, holder_name, ('mode', claim), icon, icon_name, NOTE_LISTS_EMPTY.copy(), 0, 0, 0]
 			if claim == 'user':
 				list1.prepend(list_item)
 			elif claim == 'group':
@@ -565,9 +565,9 @@ def make_numeric(s):
 	else: return int(s)
 
 def getfacl(filepath, numeric=False):
-	flags = "-Ep"
+	flags = '-Ep'
 	if numeric: flags += 'n'
-	errno, getfacl_lines, errors = execve("getfacl", flags, fixlinkdirpath(filepath))
+	errno, getfacl_lines, errors = execve('getfacl', flags, fixlinkdirpath(filepath))
 	if errno == 0:
 		acls = {'default': {}}
 		for line in getfacl_lines:
@@ -589,7 +589,7 @@ def getfacl(filepath, numeric=False):
 		#print acls
 		return acls
 	else:
-		errors.insert(0, (_("Running %s command:") % "getfacl")+"\n")
+		errors.insert(0, (_("Running %s command:") % 'getfacl')+"\n")
 		display_error(errors)
 		return None
 
@@ -606,7 +606,7 @@ def getxattr(filepath, only_keys=False):
 		#print attr
 		return attr
 	else:
-		errno, lines, errors = execve("getfattr", "--absolute-names", filepath)
+		errno, lines, errors = execve('getfattr', '--absolute-names', filepath)
 		if errno == 0:
 			for line in lines:
 				line = line.strip()
@@ -614,7 +614,7 @@ def getxattr(filepath, only_keys=False):
 					if only_keys:
 						errno, value = 0, ''
 					else:
-						errno, value, errors = execve("getfattr", "-n", line, "--only-values", filepath)
+						errno, value, errors = execve('getfattr', '-n', line, '--only-values', filepath)
 					if errno == 0:
 						attr[line] = ''.join(value)
 					else:
@@ -626,7 +626,7 @@ def getxattr(filepath, only_keys=False):
 def getfsattr(filepath):
 	fsattrs = {}
 	filepath = os.path.realpath(filepath)
-	errno, lines, errors = execve("lsattr", "-d", filepath)
+	errno, lines, errors = execve('lsattr', '-d', filepath)
 	if errno == 0:
 		for line in lines:
 			attr, rest = line.split(' ', 1)
@@ -638,11 +638,11 @@ def mk_holder_label(name, typ, claim):
 	label = name
 	if typ == 'mode':
 		if claim in ['owner', 'user']:
-			label = "<u>%s</u>" % label
+			label = '<u>%s</u>' % label
 		if claim != 'other':
-			label = "<b>%s</b>" % label
+			label = '<b>%s</b>' % label
 	if claim in ['group', 'other']:
-		label = "<i>%s</i>" % label
+		label = '<i>%s</i>' % label
 	return label
 
 
@@ -667,7 +667,7 @@ def on_toggle_lsattr(cell, path):
 		it = list4.get_iter(path)
 		key = list4[it][2]
 		bit = not list4[it][0]
-		errno, stdout, stderr = execve("chattr", "%c%c" % ('+' if bit else '-', key), Global['Filename'])
+		errno, stdout, stderr = execve('chattr', '%c%c' % ('+' if bit else '-', key), Global['Filename'])
 		if errno == 0:
 			try:
 				list4[it][0] = getfsattr(Global['Filename'])[key]
@@ -730,7 +730,7 @@ def main_chmod(claim, holder, rights, on, is_recursive=False, follow_symlinks=Fa
 	
 	if typ == 'spec':
 		newmode = mkmod(Global['Filename'], claim, on, rights)
-		print "chmod %o" % newmode
+		print 'chmod %o' % newmode
 		os.chmod(Global['Filename'], newmode)
 	elif typ in ['mode', 'acl']:
 		if typ == 'mode':
@@ -739,18 +739,18 @@ def main_chmod(claim, holder, rights, on, is_recursive=False, follow_symlinks=Fa
 		newacl = mkacl(Global['Filename'], claim, holder, on, rights)
 		if newacl is None:
 			raise LocalException(_("Can not compute new ACL"))
-		acl_str = "%s:%s:%s" % (claim, holder, newacl)
+		acl_str = '%s:%s:%s' % (claim, holder, newacl)
 	elif typ == 'default':
 		newacl = mkacl(Global['Filename'], claim, holder, on, rights, is_default=True)
 		if newacl is None:
 			raise LocalException(_("Can not compute new default ACL"))
-		acl_str = "default:%s:%s:%s" % (claim, holder, newacl)
+		acl_str = 'default:%s:%s:%s' % (claim, holder, newacl)
 	else:
-		raise LocalException("claim unknown: %s" % typ)
+		raise LocalException('claim unknown: %s' % typ)
 
 	if typ in ['mode', 'acl', 'default']:
-		args = ["setfacl", "-m", acl_str, "--mask", "--logical" if follow_symlinks else "--physical"]
-		if is_recursive: args.append("--recursive")
+		args = ['setfacl', '-m', acl_str, '--mask', '--logical' if follow_symlinks else '--physical']
+		if is_recursive: args.append('--recursive')
 		print args
 		args.append(fixlinkdirpath(Global['Filename']))
 		errno, output, errors = execve(*args)
@@ -865,7 +865,7 @@ def main_chown_response(widget, box, action, tv, progressbar, btn_chown, btn_tak
 		box.destroy = lambda: 0
 		box.connect('delete_event', conditional_close, _("Operation in progress"))
 		pulsate('start', progressbar)
-		#bckg_thrd = run_async(["sh", "-c", "sleep 2; echo test error>&2; echo test output; exit 1"], takeown_callback, box, progressbar, [btn_chown, btn_takeown])
+		#bckg_thrd = run_async(['sh', '-c', 'sleep 2; echo test error>&2; echo test output; exit 1'], takeown_callback, box, progressbar, [btn_chown, btn_takeown])
 		# takeown removed '-d' flag in favour of '-R' with inverse meaning, as of yazzy-utils_0.1.66 (01 Jul 2016)
 		bckg_thrd = run_async(['takeown', '-v', Global['Filename']], takeown_callback, box, progressbar, [btn_chown, btn_takeown])
 		box.set_data('background-thread', bckg_thrd)
@@ -885,7 +885,7 @@ def takeown_callback(thrd, results, box, progressbar, sensitive_widgets):
 		load_file()
 		box.get_data('destroy-func').__call__()
 	else:
-		errs.insert(0, (_("Running %s command:") % "takeown")+"\n")
+		errs.insert(0, (_("Running %s command:") % 'takeown')+'\n')
 		display_error(errs)
 		for wdg in sensitive_widgets: wdg.set_sensitive(True)
 		box.destroy = box.get_data('destroy-func')
@@ -914,16 +914,16 @@ def pulsate(action, progressbar):
 def revoke(claim_tuple, holder, is_recursive=False, follow_symlinks=False):
 	typ, claim = claim_tuple
 	if typ == 'acl':
-		acl_str = "%s:%s" % (claim, holder)
+		acl_str = '%s:%s' % (claim, holder)
 	elif typ == 'default':
-		acl_str = "default:%s:%s" % (claim, holder)
+		acl_str = 'default:%s:%s' % (claim, holder)
 	elif typ == 'mode':
 		return main_chmod(claim_tuple, holder, ['r', 'w', 'x'], False, is_recursive) == False
 	else:
-		raise LocalException("claim unknown: %s" % typ)
+		raise LocalException('claim unknown: %s' % typ)
 	if typ in ['acl', 'default']:
-		args = ["setfacl", "-x", acl_str, "--logical" if follow_symlinks else "--physical"]
-		if is_recursive: args.append("--recursive")
+		args = ['setfacl', '-x', acl_str, '--logical' if follow_symlinks else '--physical']
+		if is_recursive: args.append('--recursive')
 		print args
 		args.append(fixlinkdirpath(Global['Filename']))
 		errno, output, errors = execve(*args)
@@ -933,7 +933,7 @@ def revoke(claim_tuple, holder, is_recursive=False, follow_symlinks=False):
 
 def get_ospath(store, node):
 	if node is None:
-		return "/"
+		return '/'
 	return os.path.join(get_ospath(store, store.iter_parent(node)), store.get_value(node, 0))
 	
 def clear_dirs(store, parentnode):
@@ -1052,7 +1052,7 @@ def checkbutton_set_markup(chkbtn, text):
 
 def normpath(path):
 	norm = os.path.normpath(path)
-	if norm.startswith("//"):
+	if norm.startswith('//'):
 		norm = norm[1:]
 	return norm
 
@@ -1108,7 +1108,7 @@ def on_click_revoke_rec(widget, tree_OR_ctx_menu, do_follow_symlinks, is_default
 	return on_click_revoke(widget, tree_OR_ctx_menu, do_follow_symlinks, is_default, is_recursive=True)
 
 def on_click_remove_all_default_acl(widget):
-	errno, output, errors = execve("setfacl", "-k", fixlinkdirpath(Global['Filename']))
+	errno, output, errors = execve('setfacl', '-k', fixlinkdirpath(Global['Filename']))
 	if errno == 0:
 		load_file()
 	else:
@@ -1130,7 +1130,7 @@ def new_userlist_treeview():
 	tv = gtk.TreeView(model)
 	tv.set_data('colnum-id', 1)
 	tv.set_data('colnum-name', 0)
-	tv.connect("button-press-event", on_tree_click, ctx_menu_info)
+	tv.connect('button-press-event', on_tree_click, ctx_menu_info)
 	scrl.add(tv)
 	tv.set_enable_search(True)
 	tv.set_search_column(0)
@@ -1141,9 +1141,9 @@ def new_userlist_treeview():
 	cr_txt = gtk.CellRendererText()
 	tvc.pack_start(cr_pix, False)
 	tvc.pack_start(cr_txt, True)
-	tvc.add_attribute(cr_pix, "pixbuf", 2)
-	tvc.add_attribute(cr_pix, "icon-name", 3)
-	tvc.add_attribute(cr_txt, "text", 0)
+	tvc.add_attribute(cr_pix, 'pixbuf', 2)
+	tvc.add_attribute(cr_pix, 'icon-name', 3)
+	tvc.add_attribute(cr_txt, 'text', 0)
 	return scrl, tv, tvc, model
 
 def display_info(typ, idnum, name=None, is_default=False):
@@ -1168,27 +1168,27 @@ def display_info(typ, idnum, name=None, is_default=False):
 
 	if is_default and typ in ['user', 'group'] and idnum==-1:
 		if typ == 'user':
-			details = ["<big><b>%s</b></big>" % _("OWNER"), "<i>%s</i>" % _("The owner of newly created files")]
+			details = ['<big><b>%s</b></big>' % _("OWNER"), '<i>%s</i>' % _("The owner of newly created files")]
 		elif typ == 'group':
-			details = ["<big><b>%s</b></big>" % _("OWNER GROUP"), "<i>%s</i>" % _("The owner group of newly created files")]
+			details = ['<big><b>%s</b></big>' % _("OWNER GROUP"), '<i>%s</i>' % _("The owner group of newly created files")]
 	elif typ == 'user':
 		try:
 			pwent = pwd.getpwuid(idnum)
 			username = pwent.pw_name
 			fullname = fullname_from_gecos(pwent.pw_gecos)
-			details = ["<big><b>%s</b></big>" % (fullname if fullname != '' else username), "Login: %s" % username, "Id: %s" % idnum, "Home: %s" % pwent.pw_dir]
+			details = ['<big><b>%s</b></big>' % (fullname if fullname != '' else username), "Login: %s" % username, "Id: %s" % idnum, "Home: %s" % pwent.pw_dir]
 			gecos = pwent.pw_gecos.split(',')
 			n = 1
 			for dtln in ("Room", "Work Phone", "Home Phone", "Note"):
 				if len(gecos) > n and gecos[n] != '':
-					details.append("%s: %s" % (dtln, gecos[n]))
+					details.append('%s: %s' % (dtln, gecos[n]))
 				n += 1
 		except KeyError:
-			details = ["<big><b>%s</b></big>" % ("n/a" if name is None else name), _("Non-existent user"), "Id: %s" % (idnum if idnum != -1 else "n/a")]
-		load_user_list_into(memberlist, "group", get_groups(idnum))
+			details = ['<big><b>%s</b></big>' % ('n/a' if name is None else name), _("Non-existent user"), "Id: %s" % (idnum if idnum != -1 else 'n/a')]
+		load_user_list_into(memberlist, 'group', get_groups(idnum))
 		lbl2.set_label(_("List of groups that user member of:"))
-		tvc.set_title(_("Group"))
-		tv.set_data('typ', "group")
+		tvc.set_title(_('Group'))
+		tv.set_data('typ', 'group')
 	elif typ == 'group':
 		try:
 			grent = grp.getgrgid(idnum)
@@ -1196,15 +1196,15 @@ def display_info(typ, idnum, name=None, is_default=False):
 			desc = getgrdsc(name)
 			if desc is None: desc = ''
 		except KeyError:
-			name = "n/a"
+			name = 'n/a'
 			desc = _("Non-existent group")
-		details = ["<big><b>%s</b></big>" % name, desc, "Id: %s" % (idnum if idnum != -1 else "n/a")]
-		load_user_list_into(memberlist, "user", get_members(idnum))
+		details = ['<big><b>%s</b></big>' % name, desc, "Id: %s" % (idnum if idnum != -1 else 'n/a')]
+		load_user_list_into(memberlist, 'user', get_members(idnum))
 		lbl2.set_label(_("List of group members:"))
 		tvc.set_title(_("User"))
-		tv.set_data('typ', "user")
+		tv.set_data('typ', 'user')
 	elif typ == 'other':
-		details = ["<big><b>%s</b></big>" % _("Everybody"), "<i>%s</i>" % _("Everybody else who is not listed as permission holder")]
+		details = ['<big><b>%s</b></big>' % _("Everybody"), '<i>%s</i>' % _("Everybody else who is not listed as permission holder")]
 	
 	for detail in details:
 		lbl = gtk.Label()
@@ -1303,9 +1303,9 @@ def show_notices():
 	for n in specmode.keys():
 		if isfile and specmode[n] and notice[n]:
 			spec_notices += 1
-			mup = "<b><span foreground='darkred'>%s</span></b>"
+			mup = '<b><span foreground=\'darkred\'>%s</span></b>'
 		else:
-			mup = "%s"
+			mup = '%s'
 		lbl = SpecChkb[n].get_data('label')
 		checkbutton_set_markup(SpecChkb[n], mup % lbl)
 	if spec_notices > 0:
@@ -1387,40 +1387,40 @@ def is_accessible_parent(filepath, claim, idnum, gids=None, cause=None):
 	if claim == 'user':
 		if owner == idnum:
 			role = _("owner")
-			if acls["user"][-1].find('x') > -1:
+			if acls['user'][-1].find('x') > -1:
 				has_access = True
 		elif gowner in gids:
 			role = _("group owner")
-			if acls["group"][-1].find('x') > -1:
+			if acls['group'][-1].find('x') > -1:
 				has_access = True
-		elif acls["user"].has_key(idnum):
+		elif acls['user'].has_key(idnum):
 			role = _("permission holder")
-			if acls["user"][idnum].find('x') > -1:
+			if acls['user'][idnum].find('x') > -1:
 				has_access = True
 		else:
 			group_access = False
-			for gid in acls["group"]:
+			for gid in acls['group']:
 				if gid in gids:
 					role = _("member of permission holder group %d") % gid
 					group_access = True
-					if acls["group"][gid].find('x') > -1:
+					if acls['group'][gid].find('x') > -1:
 						has_access = True
 					break
 			if not group_access:
-				if acls["other"][-1].find('x') > -1:
+				if acls['other'][-1].find('x') > -1:
 					has_access = True
 	elif claim == 'group':
 		if gowner == idnum:
-			if acls["group"][-1].find('x') > -1:
+			if acls['group'][-1].find('x') > -1:
 				has_access = True
-		elif acls["group"].has_key(idnum):
-			if acls["group"][idnum].find('x') > -1:
+		elif acls['group'].has_key(idnum):
+			if acls['group'][idnum].find('x') > -1:
 				has_access = True
 		else:
-			if acls["other"][-1].find('x') > -1:
+			if acls['other'][-1].find('x') > -1:
 				has_access = True
 	elif claim == 'other':
-		if acls["other"][-1].find('x') > -1:
+		if acls['other'][-1].find('x') > -1:
 			has_access = True
 
 	if has_access:
@@ -1431,7 +1431,7 @@ def is_accessible_parent(filepath, claim, idnum, gids=None, cause=None):
 	if cause is not None:
 		txt = _("can not enter directory <b>%s</b>") % parent
 		if role is not None:
-			txt += " %s %s" % (_("as"), role)
+			txt += ' %s %s' % (_("as"), role)
 		cause.append(txt)
 	return False
 
@@ -1567,7 +1567,7 @@ def add_new_grant(widget, tree, dummy1=False, is_default=False):
 	fr_holder.add(hb_holder)
 	hb_holder.pack_start(vb_radio, False, False, 0)
 	hb_holder.pack_start(vb_tree, True, True, 0)
-	for label, typ in (_("The owner"), "owner"), (_("A single user:"), "user"), (_("The owner group"), "ownergroup"), (_("A group of users:"), "group"), (_("Everybody else"), "other"):
+	for label, typ in (_("The owner"), 'owner'), (_("A single user:"), 'user'), (_("The owner group"), 'ownergroup'), (_("A group of users:"), 'group'), (_("Everybody else"), 'other'):
 		rb[typ] = gtk.RadioButton(None if len(rb.keys()) == 0 else rb[rb.keys()[0]], label)
 		rb[typ].connect('toggled', add_new_grant_fill, tv, tvc, typ, cb_show_system)
 		vb_radio.pack_start(rb[typ], False, False, 0)
@@ -1598,7 +1598,7 @@ def new_child_window():
 	box.add(fr)
 	return (box, fr)
 
-def add_new_xattr(widget, key = "user."):
+def add_new_xattr(widget, key = 'user.'):
 	box, fr = new_child_window()
 	vb = gtk.VBox(spacing=10)
 	hb_n = gtk.HBox()
@@ -1657,7 +1657,7 @@ def setxattr(filepath, fqname, value):
 		except IOError, exc:
 			display_error(exc)
 	else:
-		errno, lines, errors = execve("setfattr", "-n", fqname, "-v", value, filepath)
+		errno, lines, errors = execve('setfattr', '-n', fqname, '-v', value, filepath)
 		if errno == 0:
 			return True
 		else:
@@ -1676,7 +1676,7 @@ def delxattr(filepath, fqname, attrs=None):
 		except IOError, exc:
 			display_error(exc)
 	else:
-		errno, lines, errors = execve("setfattr", "-x", fqname, filepath)
+		errno, lines, errors = execve('setfattr', '-x', fqname, filepath)
 		if errno == 0:
 			return True
 		else:
@@ -1737,16 +1737,16 @@ def export_xattr(widget):
 		filename = dialog.get_filename()
 	dialog.destroy()
 	if filename is not None:
-		errno, lines, errors = execve("getfattr", "--absolute-names", "-d", Global['Filename'])
+		errno, lines, errors = execve('getfattr', '--absolute-names', '-d', Global['Filename'])
 		if errno == 0:
 			try:
-				fh = open(filename, "w")
+				fh = open(filename, 'w')
 				fh.write(''.join(lines[1:]))
 				fh.close()
 			except IOError, exc:
 				display_error(exc)
 		else:
-			errors.insert(0, (_("Running %s command:") % "getfattr")+"\n")
+			errors.insert(0, (_("Running %s command:") % 'getfattr')+'\n')
 			display_error(errors)
 
 def restore_xattr(widget):
@@ -1761,7 +1761,7 @@ def restore_xattr(widget):
 		success = False
 		try:
 			fr = open(filename, 'r')
-			fhnd_write.write("# file: %s\n" % Global['Filename'])
+			fhnd_write.write('# file: %s\n' % Global['Filename'])
 			while True:
 				line = fr.readline()
 				if line == '':
@@ -1782,7 +1782,7 @@ def restore_xattr(widget):
 			display_error(_("Can not restore"))
 			return False
 		
-		errno, lines, errors = execve("setfattr", "--restore", "/proc/self/fd/%d" % pipe_read)
+		errno, lines, errors = execve('setfattr', '--restore', '/proc/self/fd/%d' % pipe_read)
 		try:
 			os.close(pipe_read)
 		except IOError, exc:
@@ -1790,7 +1790,7 @@ def restore_xattr(widget):
 		if errno == 0:
 			load_xattr(Global['Filename'])
 		else:
-			errors.insert(0, (_("Running %s command:") % "setfattr")+"\n")
+			errors.insert(0, (_("Running %s command:") % 'setfattr')+'\n')
 			display_error(errors)
 
 
@@ -1809,22 +1809,22 @@ def xattr_edited_callback(cellrenderer, nodepath, new_text, colnum):
 
 
 ### MAIN
-gettext.textdomain("PermEd")
+gettext.textdomain('PermEd')
 oparser = OptionParser()
-#oparser.add_option("-T", "--no-tree", dest="no_tree", action="store_true", default=False, help="do not load directory tree")
+#oparser.add_option('-T', '--no-tree', dest='no_tree', action='store_true', default=False, help=_("do not load directory tree"))
 (main_options, main_args) = oparser.parse_args()
 try:
 	gtk.settings_get_default().props.gtk_button_images = True
 except AttributeError:
 	pass
-if not sys.argv[0].startswith("/usr/"):
-	gettext.bindtextdomain("PermEd", os.getcwd())
+if not sys.argv[0].startswith('/usr/'):
+	gettext.bindtextdomain('PermEd', os.path.join(os.getcwd(), 'locale'))
 RightByColumn = [None, 'r', 'w', 'x']
 RightShift = {'r': 2, 'w': 1, 'x': 0, 0x4: 2, 0x2: 1, 0x1: 0}
 RightPos3 = {'r': 0, 'w': 1, 'x': 2}
 ClaimShift = {'other': 0, 'group': 3, 'user': 6, 'spec': 9}
 Global = { 'Lock': {'Expand': False, 'Filename': False, 'SpecToggle': False}, 'Filename': None, }
-dummy_entry = [".", gtk.STOCK_DIRECTORY]
+dummy_entry = ['.', gtk.STOCK_DIRECTORY]
 NOTE_LISTS_EMPTY = {'Mask': [], 'Inaccessible': []}
 SpecLabel = {
 	'setuid': {
@@ -1931,14 +1931,14 @@ cellr2 = gtk.CellRendererPixbuf()
 cellr3 = gtk.CellRendererText()
 tvcol2.pack_start(cellr2, False)
 tvcol2.pack_start(cellr3, True)
-tvcol2.add_attribute(cellr2, "stock-id", 1)
-tvcol2.add_attribute(cellr3, "text", 0)
+tvcol2.add_attribute(cellr2, 'stock-id', 1)
+tvcol2.add_attribute(cellr3, 'text', 0)
 tree2.append_column(tvcol2)
 
-tree2.connect("row-expanded", on_node_expand)
-tree2.connect("row-collapsed", on_node_collapse)
-tree2.connect("row-activated", on_node_activate)
-tree2.connect("cursor-changed", on_node_select)
+tree2.connect('row-expanded', on_node_expand)
+tree2.connect('row-collapsed', on_node_collapse)
+tree2.connect('row-activated', on_node_activate)
+tree2.connect('cursor-changed', on_node_select)
 scrl2.add(tree2)
 
 
@@ -1946,8 +1946,8 @@ scrl2.add(tree2)
 vbox1 = gtk.VBox()
 hpane1.pack2(vbox1, True, True)
 entr1 = gtk.Entry()
-entr1.connect("activate", on_filename_enter)
-entr1.connect("focus-out-event", on_filename_blur)
+entr1.connect('activate', on_filename_enter)
+entr1.connect('focus-out-event', on_filename_blur)
 Gomb['reload'] = StockButton('', gtk.STOCK_REFRESH)
 Gomb['reload'].connect('clicked', on_filename_refresh)
 
@@ -1995,22 +1995,22 @@ for tree in tree1, tree1b:
 		if colnum == COLNUM_LABEL:
 			cellr = gtk.CellRendererPixbuf()
 			tvcol.pack_start(cellr, False)
-			tvcol.add_attribute(cellr, "pixbuf", COLNUM_PIX)
-			tvcol.add_attribute(cellr, "icon-name", COLNUM_ICON_NAME)
+			tvcol.add_attribute(cellr, 'pixbuf', COLNUM_PIX)
+			tvcol.add_attribute(cellr, 'icon-name', COLNUM_ICON_NAME)
 			cellr = gtk.CellRendererText()
 			tvcol.pack_start(cellr, True)
-			tvcol.add_attribute(cellr, "markup", colnum)
+			tvcol.add_attribute(cellr, 'markup', colnum)
 		elif colnum in [COLNUM_READ, COLNUM_WRITE, COLNUM_EXECUTE]:
 			cellr = gtk.CellRendererToggle()
-			cellr.connect("toggled", on_toggle, tree, colnum)
+			cellr.connect('toggled', on_toggle, tree, colnum)
 			tvcol.pack_start(cellr, True)
-			tvcol.add_attribute(cellr, "active", colnum)
-			tvcol.add_attribute(cellr, "inconsistent", colnum + COLNUM_DISTANCE_BG)
+			tvcol.add_attribute(cellr, 'active', colnum)
+			tvcol.add_attribute(cellr, 'inconsistent', colnum + COLNUM_DISTANCE_BG)
 		elif colnum == COLNUM_NOTE:
 			cellr = gtk.CellRendererText()
 			cellr.set_property('editable', True)
 			tvcol.pack_start(cellr, True)
-			tvcol.add_attribute(cellr, "markup", colnum)
+			tvcol.add_attribute(cellr, 'markup', colnum)
 		colnum += 1
 
 
