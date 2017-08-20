@@ -390,3 +390,11 @@ msgstr "Szimlinkek követése"
 # file: PermEd, line: 2073
 msgid "No follow symlinks"
 msgstr "Ne kövessen szimlinkeket"
+
+# file: repo/PermEd, line: 1205
+msgid "Description"
+msgstr "Leírás"
+
+# file: repo/PermEd, line: 1220
+msgid "Full Name"
+msgstr "Teljes Név"

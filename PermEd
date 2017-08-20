@@ -221,8 +221,13 @@ def fullname_by_uid(uid):
 		return None
 
 def fullname_from_gecos(gecos):
-	if gecos is None: return None
-	return gecos.split(',')[0]
+	if gecos is None:
+		return None
+	flds = gecos.split(',')
+	if len(flds) >= 4:
+		return flds[0]
+	else:
+		return gecos
 
 def gid_by_name(name):
 	try:
@@ -258,18 +263,20 @@ def get_members(idnum=None, name=None):
 	if idnum is None:
 		idnum = -1
 	for pwent in pwd.getpwall():
+		# Search group members by users primary group
 		uids[pwent.pw_name] = pwent.pw_uid
 		if pwent.pw_gid == idnum:
-			members.append((pwent.pw_uid, pwent.pw_name))
+			members.append((pwent.pw_uid, pwent.pw_name, fullname_by_uid(pwent.pw_uid)))
 	if idnum != -1:
 		try:
+			# Search ordinary group members
 			grent = grp.getgrgid(idnum)
 			for mem_name in grent.gr_mem:
 				try:
 					uid = uids[mem_name]
 				except KeyError:
 					uid = -1
-				members.append((uid, mem_name))
+				members.append((uid, mem_name, fullname_by_uid(uid)))
 		except KeyError:
 			pass
 	#print members
@@ -296,7 +303,7 @@ def get_groups(idnum=None, name=None, get_names=True):
 			gids[grent.gr_gid] = grent.gr_name
 		if name != '' and name in grent.gr_mem:
 			if get_names:
-				item = (grent.gr_gid, grent.gr_name)
+				item = (grent.gr_gid, grent.gr_name, getgrdsc(grent.gr_name))
 			else:
 				item = grent.gr_gid
 			groups.append(item)
@@ -308,7 +315,7 @@ def get_groups(idnum=None, name=None, get_names=True):
 					grp_name = gids[pwent.pw_gid]
 				except KeyError:
 					grp_name = str(pwent.pw_gid)
-				groups.append((pwent.pw_gid, grp_name))
+				groups.append((pwent.pw_gid, grp_name, getgrdsc(grp_name)))
 			else:
 				groups.append(pwent.pw_gid)
 		except KeyError:
@@ -763,7 +770,7 @@ def main_chown(widget, claim):
 	box, fr = new_child_window()
 	vb = gtk.VBox()
 	fr.add(vb)
-	scrl, tv, tvc, memberlist = new_userlist_treeview()
+	scrl, tv, tvcs, memberlist = new_userlist_treeview()
 	box.set_geometry_hints(scrl, min_width=-1, min_height=150)
 
 	fr_chown = gtk.Frame()
@@ -812,8 +819,8 @@ def main_chown(widget, claim):
 		hb_takeown.pack_start(btn_takeown, True, False, 0)
 		vb_takeown.pack_start(progressbar, False, True, 0)
 
-		cb_show_system.connect('toggled', add_new_grant_fill, tv, tvc, 'user', cb_show_system)
-		add_new_grant_fill(None, tv, tvc, 'user', cb_show_system)
+		cb_show_system.connect('toggled', add_new_grant_fill, tv, tvcs, 'user', cb_show_system)
+		add_new_grant_fill(None, tv, tvcs, 'user', cb_show_system)
 		btn_chown.connect('clicked', main_chown_response, box, 'chown', tv, None, btn_chown, btn_takeown)
 		btn_takeown.connect('clicked', main_chown_response, box, 'takeown', None, progressbar, btn_chown, btn_takeown)
 
@@ -827,7 +834,7 @@ def main_chown(widget, claim):
 		vb.pack_start(fr_chown, True, True, 0)
 		vb_chown.pack_start(cb_show_foreign, False, False, 0)
 
-		cb = lambda x: add_new_grant_fill(x, tv, tvc, 'group', cb_show_system, cb_show_foreign)
+		cb = lambda x: add_new_grant_fill(x, tv, tvcs, 'group', cb_show_system, cb_show_foreign)
 		cb_show_system.connect('toggled', cb)
 		cb_show_foreign.connect('toggled', cb)
 		cb(None)
@@ -1119,12 +1126,12 @@ def on_click_recommend(widget):
 
 def load_user_list_into(model, typ, tuple_list):
 	model.clear()
-	for idnum, name in sorted(tuple_list, key=lambda e: e[1]):
+	for idnum, name, descript in sorted(tuple_list, key=lambda e: e[1]):
 		face, icon_name, icon_size = load_face_fallback(idnum, IconSize['small'], typ)
-		model.append([name, idnum, face, icon_name])
+		model.append([name, idnum, face, icon_name, descript])
 
 def new_userlist_treeview():
-	model = gtk.ListStore(str, int, gtk.gdk.Pixbuf, str)
+	model = gtk.ListStore(str, int, gtk.gdk.Pixbuf, str, str)
 	scrl = gtk.ScrolledWindow()
 	scrl.set_policy(gtk.POLICY_AUTOMATIC, gtk.POLICY_AUTOMATIC)
 	tv = gtk.TreeView(model)
@@ -1135,16 +1142,23 @@ def new_userlist_treeview():
 	tv.set_enable_search(True)
 	tv.set_search_column(0)
 	tv.set_rules_hint(True)
-	tvc = gtk.TreeViewColumn()
-	tv.append_column(tvc)
+
+	tvc0 = gtk.TreeViewColumn()
 	cr_pix = gtk.CellRendererPixbuf()
 	cr_txt = gtk.CellRendererText()
-	tvc.pack_start(cr_pix, False)
-	tvc.pack_start(cr_txt, True)
-	tvc.add_attribute(cr_pix, 'pixbuf', 2)
-	tvc.add_attribute(cr_pix, 'icon-name', 3)
-	tvc.add_attribute(cr_txt, 'text', 0)
-	return scrl, tv, tvc, model
+	tvc0.pack_start(cr_pix, False)
+	tvc0.pack_start(cr_txt, True)
+	tvc0.add_attribute(cr_pix, 'pixbuf', 2)
+	tvc0.add_attribute(cr_pix, 'icon-name', 3)
+	tvc0.add_attribute(cr_txt, 'text', 0)
+	tv.append_column(tvc0)
+
+	tvc1 = gtk.TreeViewColumn()
+	cr_txt = gtk.CellRendererText()
+	tvc1.pack_start(cr_txt, True)
+	tvc1.add_attribute(cr_txt, 'text', 4)
+	tv.append_column(tvc1)
+	return scrl, tv, [tvc0, tvc1], model
 
 def display_info(typ, idnum, name=None, is_default=False):
 	box, fr = new_child_window()
@@ -1163,7 +1177,7 @@ def display_info(typ, idnum, name=None, is_default=False):
 
 	lbl2 = gtk.Label()
 	lbl2.set_alignment(0, 0)
-	scrl, tv, tvc, memberlist = new_userlist_treeview()
+	scrl, tv, tvcs, memberlist = new_userlist_treeview()
 	box.set_geometry_hints(scrl, min_width=-1, min_height=100)
 
 	if is_default and typ in ['user', 'group'] and idnum==-1:
@@ -1187,7 +1201,8 @@ def display_info(typ, idnum, name=None, is_default=False):
 			details = ['<big><b>%s</b></big>' % ('n/a' if name is None else name), _("Non-existent user"), "Id: %s" % (idnum if idnum != -1 else 'n/a')]
 		load_user_list_into(memberlist, 'group', get_groups(idnum))
 		lbl2.set_label(_("List of groups that user member of:"))
-		tvc.set_title(_('Group'))
+		tvcs[0].set_title(_("Group"))
+		tvcs[1].set_title(_("Description"))
 		tv.set_data('typ', 'group')
 	elif typ == 'group':
 		try:
@@ -1201,7 +1216,8 @@ def display_info(typ, idnum, name=None, is_default=False):
 		details = ['<big><b>%s</b></big>' % name, desc, "Id: %s" % (idnum if idnum != -1 else 'n/a')]
 		load_user_list_into(memberlist, 'user', get_members(idnum))
 		lbl2.set_label(_("List of group members:"))
-		tvc.set_title(_("User"))
+		tvcs[0].set_title(_("User"))
+		tvcs[1].set_title(_("Full Name"))
 		tv.set_data('typ', 'user')
 	elif typ == 'other':
 		details = ['<big><b>%s</b></big>' % _("Everybody"), '<i>%s</i>' % _("Everybody else who is not listed as permission holder")]
@@ -1354,9 +1370,9 @@ def show_notices_inaccessible():
 			idnum = list1.get_value(it, COLNUM_ID)
 			cause = []
 			if not is_accessible(Global['Filename'], claim, idnum, None, cause):
-				list1[it][COLNUM_NOTE_LISTS]['Inaccessible'] = ["<i>%s: %s</i>" % (_("ineffective"), cause[0])]
+				list1[it][COLNUM_NOTE_LISTS]['Inaccessible'] = ['<i>%s: %s</i>' % (_("ineffective"), cause[0])]
 		else:
-			print "unknown claim: %s" % claim
+			print 'unknown claim: %s' % claim
 		it = list1.iter_next(it)
 	refresh_notes()
 
@@ -1455,24 +1471,27 @@ def on_toggle_spec(widget, specname):
 	show_notices()
 	return ok
 
-def add_new_grant_fill(radiobutton, tv, tvc, typ, cb_show_system, cb_show_foreign=None):
+def add_new_grant_fill(radiobutton, tv, tvcs, typ, cb_show_system, cb_show_foreign=None):
 	lst = []
 	gid_filter = None
 	if cb_show_foreign is not None and not cb_show_foreign.get_active():
 		gid_filter = get_groups(cb_show_foreign.get_data('uid'), None, get_names=False)
-	if typ == "user":
+	if typ == 'user':
 		for pwent in pwd.getpwall():
 			if cb_show_system.get_active() or pwent.pw_uid > SYSTEM_UID_MAX:
-				lst.append((pwent.pw_uid, pwent.pw_name))
-		tvc.set_title(_("User"))
-	elif typ == "group":
+				lst.append((pwent.pw_uid, pwent.pw_name, fullname_by_uid(pwent.pw_uid)))
+		tvcs[0].set_title(_("User"))
+		tvcs[1].set_title(_("Full Name"))
+	elif typ == 'group':
 		for grent in grp.getgrall():
 			if cb_show_system.get_active() or grent.gr_gid > SYSTEM_GID_MAX:
 				if gid_filter is None or grent.gr_gid in gid_filter:
-					lst.append((grent.gr_gid, grent.gr_name))
-		tvc.set_title(_("Group"))
+					lst.append((grent.gr_gid, grent.gr_name, getgrdsc(grent.gr_name)))
+		tvcs[0].set_title(_("Group"))
+		tvcs[1].set_title(_("Description"))
 	else:
-		tvc.set_title("")
+		tvcs[0].set_title('')
+		tvcs[1].set_title('')
 	tv_sensitive = typ in ['user', 'group']
 	cb_show_system.set_sensitive(tv_sensitive)
 	tv.set_sensitive(tv_sensitive)
@@ -1544,7 +1563,7 @@ def add_new_grant(widget, tree, dummy1=False, is_default=False):
 	rb = {}
 	rb_isowner = {}
 	cb_show_system = gtk.CheckButton(Markup['show_system_users'])
-	scrl, tv, tvc, memberlist = new_userlist_treeview()
+	scrl, tv, tvcs, memberlist = new_userlist_treeview()
 	box.set_geometry_hints(scrl, min_width=-1, min_height=200)
 	hb_buttons = gtk.HBox()
 	btn_grant = StockButton(_("Grant"), gtk.STOCK_ADD)
@@ -1569,7 +1588,7 @@ def add_new_grant(widget, tree, dummy1=False, is_default=False):
 	hb_holder.pack_start(vb_tree, True, True, 0)
 	for label, typ in (_("The owner"), 'owner'), (_("A single user:"), 'user'), (_("The owner group"), 'ownergroup'), (_("A group of users:"), 'group'), (_("Everybody else"), 'other'):
 		rb[typ] = gtk.RadioButton(None if len(rb.keys()) == 0 else rb[rb.keys()[0]], label)
-		rb[typ].connect('toggled', add_new_grant_fill, tv, tvc, typ, cb_show_system)
+		rb[typ].connect('toggled', add_new_grant_fill, tv, tvcs, typ, cb_show_system)
 		vb_radio.pack_start(rb[typ], False, False, 0)
 	
 	vb_tree.pack_start(scrl, True, True, 0)
@@ -2066,15 +2085,15 @@ hb.pack_start(Gomb['default-clear'], True, False, 0)
 
 ctx_menu_perm = gtk.Menu()
 ctx_menu_perm_info = StockMenuItem(None, gtk.STOCK_INFO)
-ctx_menu_perm_info.connect("activate", on_click_info, ctx_menu_perm)
+ctx_menu_perm_info.connect('activate', on_click_info, ctx_menu_perm)
 ctx_menu_perm_revoke = StockMenuItem(_("Revoke"), gtk.STOCK_DELETE)
-ctx_menu_perm_revoke.connect("activate", on_click_revoke, ctx_menu_perm)
+ctx_menu_perm_revoke.connect('activate', on_click_revoke, ctx_menu_perm)
 ctx_menu_perm_revoke_rec = gtk.MenuItem(_("Revoke Recursively"))
 ctx_menu_perm_revoke_rec_menu = gtk.Menu()
 ctx_menu_perm_revoke_rec_follow_symlinks = StockMenuItem(_("Follow symlinks"), gtk.STOCK_DELETE)
-ctx_menu_perm_revoke_rec_follow_symlinks.connect("activate", on_click_revoke_rec, ctx_menu_perm, True)
+ctx_menu_perm_revoke_rec_follow_symlinks.connect('activate', on_click_revoke_rec, ctx_menu_perm, True)
 ctx_menu_perm_revoke_rec_no_follow_symlinks = StockMenuItem(_("No follow symlinks"), gtk.STOCK_DELETE)
-ctx_menu_perm_revoke_rec_no_follow_symlinks.connect("activate", on_click_revoke_rec, ctx_menu_perm, False)
+ctx_menu_perm_revoke_rec_no_follow_symlinks.connect('activate', on_click_revoke_rec, ctx_menu_perm, False)
 ctx_menu_perm.append(ctx_menu_perm_info)
 ctx_menu_perm.append(gtk.SeparatorMenuItem())
 ctx_menu_perm.append(ctx_menu_perm_revoke)
@@ -2083,8 +2102,8 @@ ctx_menu_perm_revoke_rec.set_submenu(ctx_menu_perm_revoke_rec_menu)
 ctx_menu_perm_revoke_rec_menu.append(ctx_menu_perm_revoke_rec_no_follow_symlinks)
 ctx_menu_perm_revoke_rec_menu.append(ctx_menu_perm_revoke_rec_follow_symlinks)
 ctx_menu_perm.show_all()
-tree1.connect("button-press-event", on_tree_click, ctx_menu_perm)
-tree1b.connect("button-press-event", on_tree_click, ctx_menu_perm)
+tree1.connect('button-press-event', on_tree_click, ctx_menu_perm)
+tree1b.connect('button-press-event', on_tree_click, ctx_menu_perm)
 
 
 
@@ -2121,21 +2140,21 @@ tree3sel.connect('changed', on_removable_item_select, Gomb['xattr'][1][0])
 
 ctx_menu_xattr = gtk.Menu()
 ctx_menu_xattr_add = StockMenuItem(None, gtk.STOCK_ADD)
-ctx_menu_xattr_add.connect("activate", append_new_xattr)
+ctx_menu_xattr_add.connect('activate', append_new_xattr)
 ctx_menu_xattr_clear = StockMenuItem(_("Clear value"), gtk.STOCK_CLEAR)
-ctx_menu_xattr_clear.connect("activate", on_click_xattr_clear)
+ctx_menu_xattr_clear.connect('activate', on_click_xattr_clear)
 ctx_menu_xattr_delete = StockMenuItem(_("Remove Key"), gtk.STOCK_DELETE)
-ctx_menu_xattr_delete.connect("activate", del_xattr)
+ctx_menu_xattr_delete.connect('activate', del_xattr)
 ctx_menu_xattr.append(ctx_menu_xattr_add)
 ctx_menu_xattr.append(ctx_menu_xattr_clear)
 ctx_menu_xattr.append(ctx_menu_xattr_delete)
 ctx_menu_xattr.show_all()
-tree3.connect("button-press-event", on_tree_click, ctx_menu_xattr)
+tree3.connect('button-press-event', on_tree_click, ctx_menu_xattr)
 
 
 ctx_menu_info = gtk.Menu()
 ctx_menu_info_1 = StockMenuItem(None, gtk.STOCK_INFO)
-ctx_menu_info_1.connect("activate", on_click_info, ctx_menu_info)
+ctx_menu_info_1.connect('activate', on_click_info, ctx_menu_info)
 ctx_menu_info.append(ctx_menu_info_1)
 ctx_menu_info.show_all()
 
@@ -2150,7 +2169,7 @@ for title, colnum in (_("Name"), 0), (_("Value"), 1):
 	cellr.connect('edited', xattr_edited_callback, colnum)
 	cellr.set_property('editable', True)
 	tvcol.pack_start(cellr, True)
-	tvcol.add_attribute(cellr, "text", colnum)
+	tvcol.add_attribute(cellr, 'text', colnum)
 
 
 
@@ -2170,20 +2189,20 @@ tree4.append_column(tvcol4_0)
 cellr4_0 = gtk.CellRendererText()
 cellr4_0.set_property('weight', 700)
 tvcol4_0.pack_start(cellr4_0, True)
-tvcol4_0.add_attribute(cellr4_0, "text", 2)
+tvcol4_0.add_attribute(cellr4_0, 'text', 2)
 
 tvcol4_1 = gtk.TreeViewColumn('')
 tree4.append_column(tvcol4_1)
 cellr4_1 = gtk.CellRendererToggle()
 cellr4_1.connect('toggled', on_toggle_lsattr)
 tvcol4_1.pack_start(cellr4_1, True)
-tvcol4_1.add_attribute(cellr4_1, "active", 0)
+tvcol4_1.add_attribute(cellr4_1, 'active', 0)
 
 tvcol4_2 = gtk.TreeViewColumn(_("Attribute"))
 tree4.append_column(tvcol4_2)
 cellr4_2 = gtk.CellRendererText()
 tvcol4_2.pack_start(cellr4_2, True)
-tvcol4_2.add_attribute(cellr4_2, "text", 1)
+tvcol4_2.add_attribute(cellr4_2, 'text', 1)
 
 
 
