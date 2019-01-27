@@ -362,10 +362,14 @@ def load_file(filepath=None):
 	if os.path.isdir(filepath):
 		ftype = 'dir'
 		page1b.show()
+		ctx_menu_perm_revoke_rec.show()
+		ctx_menu_perm_regrant_rec.show()
 	else:
 		ftype = 'file'
 		if note1.get_current_page() == 1: note1.set_current_page(0)
 		page1b.hide()
+		ctx_menu_perm_revoke_rec.hide()
+		ctx_menu_perm_regrant_rec.hide()
 	names = get_permission_names(ftype=ftype)
 	tree1.get_column(COLNUM_READ).set_title(names[0])
 	tree1.get_column(COLNUM_WRITE).set_title(names[1])
