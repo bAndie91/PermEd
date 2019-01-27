@@ -1139,12 +1139,28 @@ def on_click_regrant_rec(widget, tree_OR_ctx_menu, do_follow_symlinks=False):
 		print exc.strerror
 	return False
 
-def on_click_remove_all_default_acl(widget):
-	errno, output, errors = execve('setfacl', '-k', fixlinkdirpath(Global['Filename']))
+def on_click_remove_all_default_acl(widget, is_recursive=False):
+	args = ['setfacl', '-k']
+	if is_recursive: args.append('--recursive')
+	args.append(fixlinkdirpath(Global['Filename']))
+	errno, output, errors = execve(*args)
 	if errno == 0:
 		load_file()
 	else:
 		display_error(errors)
+
+def on_rightclick_remove_all_default_acl(event):
+	menu = gtk.Menu()
+	item = StockMenuItem(_("Remove all default perms recursively"), gtk.STOCK_NO)
+	item.connect('activate', lambda wdg: on_click_remove_all_default_acl(wdg, is_recursive=True))
+	menu.append(item)
+	menu.show_all()
+	menu.popup(None, None, None, event.button, event.time)
+
+def check_right_click(btn, evt, func):
+	if evt.type == gtk.gdk.BUTTON_PRESS:
+		if evt.button == 3 or (evt.button == 1 and evt.state & gtk.gdk.SHIFT_MASK):
+			func(evt)
 
 def on_click_recommend(widget):
 	pass
@@ -2105,6 +2121,7 @@ for pre, is_default, hb, tree, treesel in ('', False, hbox2, tree1, tree1sel), (
 
 Gomb['default-clear'] = StockButton(_("Remove all default perms"), gtk.STOCK_NO)
 Gomb['default-clear'].connect('clicked', on_click_remove_all_default_acl)
+Gomb['default-clear'].connect('button-press-event', check_right_click, on_rightclick_remove_all_default_acl)
 hb.pack_start(Gomb['default-clear'], True, False, 0)
 
 
