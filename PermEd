@@ -756,15 +756,18 @@ def main_chmod(claim, holder, rights, on, is_recursive=False, follow_symlinks=Fa
 		raise LocalException('claim unknown: %s' % typ)
 
 	if typ in ['mode', 'acl', 'default']:
-		args = ['setfacl', '-m', acl_str, '--mask', '--logical' if follow_symlinks else '--physical']
-		if is_recursive: args.append('--recursive')
-		print args
-		args.append(fixlinkdirpath(Global['Filename']))
-		errno, output, errors = execve(*args)
-		if errno != 0:
-			raise LocalException(''.join(errors))
+		core_setfacl('-m', acl_str, follow_symlinks, is_recursive)
 	return on
 
+def core_setfacl(add_or_remove, acl_str, follow_symlinks, is_recursive):
+	assert add_or_remove in ['-m', '-x']
+	args = ['setfacl', add_or_remove, acl_str, '--mask', '--logical' if follow_symlinks else '--physical']
+	if is_recursive: args.append('--recursive')
+	print args
+	args.append(fixlinkdirpath(Global['Filename']))
+	errno, output, errors = execve(*args)
+	if errno != 0:
+		raise LocalException(''.join(errors))
 
 def main_chown(widget, claim):
 	box, fr = new_child_window()
@@ -929,13 +932,7 @@ def revoke(claim_tuple, holder, is_recursive=False, follow_symlinks=False):
 	else:
 		raise LocalException('claim unknown: %s' % typ)
 	if typ in ['acl', 'default']:
-		args = ['setfacl', '-x', acl_str, '--logical' if follow_symlinks else '--physical']
-		if is_recursive: args.append('--recursive')
-		print args
-		args.append(fixlinkdirpath(Global['Filename']))
-		errno, output, errors = execve(*args)
-		if errno != 0:
-			raise LocalException(''.join(errors))
+		core_setfacl('-x', acl_str, follow_symlinks, is_recursive)
 		return True
 
 def get_ospath(store, node):
@@ -1111,8 +1108,32 @@ def on_click_revoke(widget, tree_OR_ctx_menu, do_follow_symlinks=False, is_defau
 		display_error(exc)
 		print exc.strerror
 	return False
+
 def on_click_revoke_rec(widget, tree_OR_ctx_menu, do_follow_symlinks, is_default=False):
 	return on_click_revoke(widget, tree_OR_ctx_menu, do_follow_symlinks, is_default, is_recursive=True)
+
+def on_click_regrant_rec(widget, tree_OR_ctx_menu, do_follow_symlinks=False):
+	if isinstance(tree_OR_ctx_menu, gtk.TreeView):
+		tree = tree_OR_ctx_menu
+	else:
+		tree = tree_OR_ctx_menu.get_data('treeview')
+	itpath, a = tree.get_cursor()
+	model = tree.get_model()
+	it = model.get_iter(itpath)
+	try:
+		claim_type = model[it][COLNUM_CLAIM_TUPLE][0]
+		claim = model[it][COLNUM_CLAIM_TUPLE][1]
+		holder = model[it][COLNUM_NAME]
+		permission_bits = '%c%c%c' % ('r' if model[it][COLNUM_READ] else '-', 'w' if model[it][COLNUM_WRITE] else '-', 'x' if model[it][COLNUM_EXECUTE] else '-')
+		acl_str = '%s%s:%s:%s' % ('default:' if claim_type == 'default' else '', claim, holder if claim_type != 'mode' else '', permission_bits)
+		core_setfacl('-m', acl_str, do_follow_symlinks, True)
+	except LocalException, exc:
+		display_error(exc)
+		print exc.message
+	except OSError, exc:
+		display_error(exc)
+		print exc.strerror
+	return False
 
 def on_click_remove_all_default_acl(widget):
 	errno, output, errors = execve('setfacl', '-k', fixlinkdirpath(Global['Filename']))
@@ -2094,13 +2115,23 @@ ctx_menu_perm_revoke_rec_follow_symlinks = StockMenuItem(_("Follow symlinks"), g
 ctx_menu_perm_revoke_rec_follow_symlinks.connect('activate', on_click_revoke_rec, ctx_menu_perm, True)
 ctx_menu_perm_revoke_rec_no_follow_symlinks = StockMenuItem(_("No follow symlinks"), gtk.STOCK_DELETE)
 ctx_menu_perm_revoke_rec_no_follow_symlinks.connect('activate', on_click_revoke_rec, ctx_menu_perm, False)
+ctx_menu_perm_regrant_rec = gtk.MenuItem(_("Reapply Grants Recursively"))
+ctx_menu_perm_regrant_rec_menu = gtk.Menu()
+ctx_menu_perm_regrant_rec_follow_symlinks = StockMenuItem(_("Follow symlinks"), gtk.STOCK_COPY)
+ctx_menu_perm_regrant_rec_follow_symlinks.connect('activate', on_click_regrant_rec, ctx_menu_perm, True)
+ctx_menu_perm_regrant_rec_no_follow_symlinks = StockMenuItem(_("No follow symlinks"), gtk.STOCK_COPY)
+ctx_menu_perm_regrant_rec_no_follow_symlinks.connect('activate', on_click_regrant_rec, ctx_menu_perm, False)
 ctx_menu_perm.append(ctx_menu_perm_info)
 ctx_menu_perm.append(gtk.SeparatorMenuItem())
 ctx_menu_perm.append(ctx_menu_perm_revoke)
 ctx_menu_perm.append(ctx_menu_perm_revoke_rec)
+ctx_menu_perm.append(ctx_menu_perm_regrant_rec)
 ctx_menu_perm_revoke_rec.set_submenu(ctx_menu_perm_revoke_rec_menu)
 ctx_menu_perm_revoke_rec_menu.append(ctx_menu_perm_revoke_rec_no_follow_symlinks)
 ctx_menu_perm_revoke_rec_menu.append(ctx_menu_perm_revoke_rec_follow_symlinks)
+ctx_menu_perm_regrant_rec.set_submenu(ctx_menu_perm_regrant_rec_menu)
+ctx_menu_perm_regrant_rec_menu.append(ctx_menu_perm_regrant_rec_no_follow_symlinks)
+ctx_menu_perm_regrant_rec_menu.append(ctx_menu_perm_regrant_rec_follow_symlinks)
 ctx_menu_perm.show_all()
 tree1.connect('button-press-event', on_tree_click, ctx_menu_perm)
 tree1b.connect('button-press-event', on_tree_click, ctx_menu_perm)

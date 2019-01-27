@@ -353,12 +353,6 @@ msgstr "Ne legyen engedély örökítés"
 msgid "as"
 msgstr "mint"
 
-msgid "Following symlinks"
-msgstr "Követve a linkeket"
-
-msgid "Not following symlinks"
-msgstr "Nem követve a linkeket"
-
 # file: PermEd, line: 397
 msgid "Can not load ACLs"
 msgstr "ACL nem betölthető"
@@ -385,11 +379,11 @@ msgstr "Megjegyzés"
 
 # file: PermEd, line: 1556
 msgid "Follow symlinks"
-msgstr "Szimlinkek követése"
+msgstr "Szimlinkeket követve"
 
 # file: PermEd, line: 2073
 msgid "No follow symlinks"
-msgstr "Ne kövessen szimlinkeket"
+msgstr "Szimlinkeket nem követve"
 
 # file: repo/PermEd, line: 1205
 msgid "Description"
@@ -398,3 +392,6 @@ msgstr "Leírás"
 # file: repo/PermEd, line: 1220
 msgid "Full Name"
 msgstr "Teljes Név"
+
+msgid "Reapply Grants Recursively"
+msgstr "Ezen jogok kiterjesztése rekurzívan"
